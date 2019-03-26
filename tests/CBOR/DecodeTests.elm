@@ -2,7 +2,7 @@ module CBOR.DecodeTests exposing (suite)
 
 import Bytes exposing (Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode exposing (decode, decodeInt)
+import CBOR.Decode exposing (decode, decodeInt, decodeList)
 import Expect
 import Test exposing (Test, describe, test)
 
@@ -90,5 +90,55 @@ suite =
                                     ]
                     in
                     Expect.equal (decode decodeInt bytes) Nothing
+            ]
+        , describe "decodeList"
+            [ test "[]" <|
+                \_ ->
+                    let
+                        bytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x80
+                                    ]
+                    in
+                    Expect.equal (decode (decodeList decodeInt) bytes) (Just [])
+            , test "[14,42,1337]" <|
+                \_ ->
+                    let
+                        bytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x83
+                                    , Bytes.unsignedInt8 0x0E
+                                    , Bytes.unsignedInt8 0x18
+                                    , Bytes.unsignedInt8 0x2A
+                                    , Bytes.unsignedInt8 0x19
+                                    , Bytes.unsignedInt32 BE 0x05390000
+                                    ]
+                    in
+                    Expect.equal (decode (decodeList decodeInt) bytes) (Just [ 14, 42, 1337 ])
+            , test "[14,??] (not an known element)" <|
+                \_ ->
+                    let
+                        bytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x82
+                                    , Bytes.unsignedInt8 0x0E
+                                    , Bytes.unsignedInt8 0x30
+                                    ]
+                    in
+                    Expect.equal (decode (decodeList decodeInt) bytes) Nothing
+            , test "[14(,??)] (invalid size)" <|
+                \_ ->
+                    let
+                        bytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x82
+                                    , Bytes.unsignedInt8 0x0E
+                                    ]
+                    in
+                    Expect.equal (decode (decodeList decodeInt) bytes) Nothing
             ]
         ]

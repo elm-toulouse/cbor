@@ -1,5 +1,6 @@
-module CBOR.Decode exposing (Decoder, decode, decodeInt)
+module CBOR.Decode exposing (Decoder, decode, decodeInt, decodeList)
 
+import Bitwise exposing (shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Bytes
 import Tuple exposing (first)
@@ -14,6 +15,8 @@ decode (Decoder decoder) =
     Bytes.decode decoder
 
 
+{-| Major type 0: an unsigned integer
+-}
 decodeInt : Decoder Int
 decodeInt =
     let
@@ -39,7 +42,38 @@ decodeInt =
             else
                 Bytes.fail
     in
-    Decoder <| Bytes.andThen decodeValue majorType
+    majorType
+        |> Bytes.andThen decodeValue
+        |> Decoder
+
+
+{-| Major type 4: an array of data items.
+-}
+decodeList : Decoder a -> Decoder (List a)
+decodeList (Decoder decodeElem) =
+    let
+        majorType =
+            Bytes.unsignedInt8
+                |> Bytes.andThen
+                    (\a ->
+                        if shiftRightBy 5 a == 4 then
+                            -- NOTE list length encoded on 5 last bits
+                            Bytes.succeed (a - 0x80)
+
+                        else
+                            Bytes.fail
+                    )
+
+        step ( n, es ) =
+            if n <= 0 then
+                es |> List.reverse |> Bytes.Done |> Bytes.succeed
+
+            else
+                decodeElem |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+    in
+    majorType
+        |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
+        |> Decoder
 
 
 
