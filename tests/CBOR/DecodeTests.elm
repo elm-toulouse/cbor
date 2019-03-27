@@ -2,7 +2,7 @@ module CBOR.DecodeTests exposing (suite)
 
 import Bytes exposing (Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode exposing (decode, decodeInt, decodeList)
+import CBOR.Decode exposing (decode, decodeBytes, decodeInt, decodeList)
 import Expect
 import Test exposing (Test, describe, test)
 
@@ -170,6 +170,59 @@ suite =
                                     ]
                     in
                     Expect.equal (decode decodeInt bytes) Nothing
+            ]
+        , describe "Major Type 2"
+            [ test "h''" <|
+                \_ ->
+                    let
+                        bytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x40
+                                    ]
+
+                        innerBytes =
+                            Bytes.encode <|
+                                Bytes.sequence []
+                    in
+                    Expect.equal (decode decodeBytes bytes) (Just innerBytes)
+            , test "h'14'" <|
+                \_ ->
+                    let
+                        bytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x41
+                                    , Bytes.unsignedInt8 0x14
+                                    ]
+
+                        innerBytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x14 ]
+                    in
+                    Expect.equal (decode decodeBytes bytes) (Just innerBytes)
+            , test "h'1442FF'" <|
+                \_ ->
+                    let
+                        bytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x43
+                                    , Bytes.unsignedInt8 0x14
+                                    , Bytes.unsignedInt8 0x42
+                                    , Bytes.unsignedInt8 0xFF
+                                    ]
+
+                        innerBytes =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x14
+                                    , Bytes.unsignedInt8 0x42
+                                    , Bytes.unsignedInt8 0xFF
+                                    ]
+                    in
+                    Expect.equal (decode decodeBytes bytes) (Just innerBytes)
             ]
         , describe "Major Type 4"
             [ test "[]" <|

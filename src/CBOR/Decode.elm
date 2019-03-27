@@ -1,4 +1,4 @@
-module CBOR.Decode exposing (Decoder, decode, decodeInt, decodeList)
+module CBOR.Decode exposing (Decoder, decode, decodeBytes, decodeInt, decodeList)
 
 import Bitwise exposing (shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
@@ -22,25 +22,6 @@ decodeInt =
     let
         majorType =
             Bytes.unsignedInt8
-
-        decodeUnsigned a =
-            if a < 24 then
-                Bytes.succeed a
-
-            else if a == 24 then
-                Bytes.unsignedInt8
-
-            else if a == 25 then
-                Bytes.unsignedInt16 BE
-
-            else if a == 26 then
-                Bytes.unsignedInt32 BE
-
-            else if a == 27 then
-                Bytes.map2 (+) (unsignedInt53 BE) (Bytes.unsignedInt32 BE)
-
-            else
-                Bytes.fail
     in
     majorType
         |> Bytes.andThen
@@ -57,6 +38,28 @@ decodeInt =
         |> Decoder
 
 
+{-| Major type 2: a byte string
+-}
+decodeBytes : Decoder Bytes
+decodeBytes =
+    let
+        majorType =
+            Bytes.unsignedInt8
+                |> Bytes.andThen
+                    (\a ->
+                        if shiftRightBy 5 a == 2 then
+                            Bytes.succeed (a - 2 ^ 6)
+
+                        else
+                            Bytes.fail
+                    )
+    in
+    majorType
+        |> Bytes.andThen decodeUnsigned
+        |> Bytes.andThen Bytes.bytes
+        |> Decoder
+
+
 {-| Major type 4: an array of data items.
 -}
 decodeList : Decoder a -> Decoder (List a)
@@ -68,7 +71,7 @@ decodeList (Decoder decodeElem) =
                     (\a ->
                         if shiftRightBy 5 a == 4 then
                             -- NOTE list length encoded on 5 last bits
-                            Bytes.succeed (a - 0x80)
+                            Bytes.succeed (a - 2 ^ 7)
 
                         else
                             Bytes.fail
@@ -109,3 +112,24 @@ unsignedInt53 e =
                 else
                     Bytes.succeed (up * 0x0000000100000000)
             )
+
+
+decodeUnsigned : Int -> Bytes.Decoder Int
+decodeUnsigned a =
+    if a < 24 then
+        Bytes.succeed a
+
+    else if a == 24 then
+        Bytes.unsignedInt8
+
+    else if a == 25 then
+        Bytes.unsignedInt16 BE
+
+    else if a == 26 then
+        Bytes.unsignedInt32 BE
+
+    else if a == 27 then
+        Bytes.map2 (+) (unsignedInt53 BE) (Bytes.unsignedInt32 BE)
+
+    else
+        Bytes.fail
