@@ -15,7 +15,7 @@ decode (Decoder decoder) =
     Bytes.decode decoder
 
 
-{-| Major type 0: an unsigned integer
+{-| Major type 0: an unsigned integer & Major type 1: a negative integer
 -}
 decodeInt : Decoder Int
 decodeInt =
@@ -23,7 +23,7 @@ decodeInt =
         majorType =
             Bytes.unsignedInt8
 
-        decodeValue a =
+        decodeUnsigned a =
             if a < 24 then
                 Bytes.succeed a
 
@@ -43,7 +43,17 @@ decodeInt =
                 Bytes.fail
     in
     majorType
-        |> Bytes.andThen decodeValue
+        |> Bytes.andThen
+            (\a ->
+                if shiftRightBy 5 a == 0 then
+                    decodeUnsigned a
+
+                else if shiftRightBy 5 a == 1 then
+                    Bytes.map (\x -> negate x - 1) (decodeUnsigned (a - 2 ^ 5))
+
+                else
+                    Bytes.fail
+            )
         |> Decoder
 
 
