@@ -5,9 +5,9 @@ It takes data from an online tool <http://cbor.me/> which provides
 bidirectional conversion from raw bytes to CBOR, and vice-versa.
 -}
 
-import Bytes exposing (Endianness(..))
+import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode exposing (bytes, decodeBytes, int, list, string)
+import CBOR.Decode exposing (Decoder, bytes, decodeBytes, int, list, string)
 import Expect
 import Test exposing (Test, describe, test)
 
@@ -15,319 +15,79 @@ import Test exposing (Test, describe, test)
 suite : Test
 suite =
     describe "CBOR.Decode"
-        [ describe "Major Type 0"
-            [ test "14" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 14
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just 14)
-            , test "42" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 24
-                                    , Bytes.unsignedInt8 42
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just 42)
-            , test "1337" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 25
-                                    , Bytes.unsignedInt16 BE 1337
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just 1337)
-            , test "144214" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 26
-                                    , Bytes.unsignedInt32 BE 144214
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just 144214)
-            , test "2^32" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 27
-                                    , Bytes.unsignedInt32 BE 1
-                                    , Bytes.unsignedInt32 BE 0
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just 4294967296)
-            , test "2^53 - 1" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 27
-                                    , Bytes.unsignedInt32 BE 0x001FFFFF
-                                    , Bytes.unsignedInt32 BE 0xFFFFFFFF
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just 9007199254740991)
-            , test "2^53" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 27
-                                    , Bytes.unsignedInt32 BE 0x00200000
-                                    , Bytes.unsignedInt32 BE 0x00
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) Nothing
+        [ describe "Major Type 0: an unsigned integer"
+            [ hex [ 0x0E ]
+                |> expect int (Just 14)
+            , hex [ 0x18, 0x2A ]
+                |> expect int (Just 42)
+            , hex [ 0x19, 0x05, 0x39 ]
+                |> expect int (Just 1337)
+            , hex [ 0x1A, 0x00, 0x02, 0x33, 0x56 ]
+                |> expect int (Just 144214)
+            , hex [ 0x1B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect int (Just 4294967296)
+            , hex [ 0x1B, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ]
+                |> expect int (Just 9007199254740991)
+            , hex [ 0x1B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect int Nothing
             ]
-        , describe "Major Type 1"
-            [ test "-14" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x2D
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just -14)
-            , test "-42" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x38
-                                    , Bytes.unsignedInt8 0x29
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just -42)
-            , test "-1337" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x39
-                                    , Bytes.unsignedInt16 BE 0x0538
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just -1337)
-            , test "-144214" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x3A
-                                    , Bytes.unsignedInt32 BE 0x00023355
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just -144214)
-            , test "-2^32" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x3A
-                                    , Bytes.unsignedInt32 BE 0xFFFFFFFF
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just -4294967296)
-            , test "-(2^53 - 1)" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x3B
-                                    , Bytes.unsignedInt32 BE 0x001FFFFF
-                                    , Bytes.unsignedInt32 BE 0xFFFFFFFE
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) (Just -9007199254740991)
-            , test "-2^53" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 27
-                                    , Bytes.unsignedInt32 BE 0x00200000
-                                    , Bytes.unsignedInt32 BE 0x00
-                                    ]
-                    in
-                    Expect.equal (decodeBytes int bs) Nothing
+        , describe "Major Type 1: a negative integer"
+            [ hex [ 0x2D ]
+                |> expect int (Just -14)
+            , hex [ 0x38, 0x29 ]
+                |> expect int (Just -42)
+            , hex [ 0x39, 0x05, 0x38 ]
+                |> expect int (Just -1337)
+            , hex [ 0x3A, 0x00, 0x02, 0x33, 0x55 ]
+                |> expect int (Just -144214)
+            , hex [ 0x3A, 0xFF, 0xFF, 0xFF, 0xFF ]
+                |> expect int (Just -4294967296)
+            , hex [ 0x3B, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ]
+                |> expect int (Just -9007199254740992)
+            , hex [ 0x3B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect int Nothing
             ]
-        , describe "Major Type 2"
-            [ test "h''" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x40
-                                    ]
-
-                        innerbs =
-                            Bytes.encode <|
-                                Bytes.sequence []
-                    in
-                    Expect.equal (decodeBytes bytes bs) (Just innerbs)
-            , test "h'14'" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x41
-                                    , Bytes.unsignedInt8 0x14
-                                    ]
-
-                        innerbs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x14 ]
-                    in
-                    Expect.equal (decodeBytes bytes bs) (Just innerbs)
-            , test "h'1442FF'" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x43
-                                    , Bytes.unsignedInt8 0x14
-                                    , Bytes.unsignedInt8 0x42
-                                    , Bytes.unsignedInt8 0xFF
-                                    ]
-
-                        innerbs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x14
-                                    , Bytes.unsignedInt8 0x42
-                                    , Bytes.unsignedInt8 0xFF
-                                    ]
-                    in
-                    Expect.equal (decodeBytes bytes bs) (Just innerbs)
+        , describe "Major Type 2: a byte string"
+            [ hex [ 0x40 ]
+                |> expect bytes (Just <| hex [])
+            , hex [ 0x41, 0x14 ]
+                |> expect bytes (Just <| hex [ 0x14 ])
+            , hex [ 0x43, 0x14, 0x42, 0xFF ]
+                |> expect bytes (Just <| hex [ 0x14, 0x42, 0xFF ])
             ]
-        , describe "Major Type 3"
-            [ test "\"\"" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x60
-                                    ]
-
-                        str =
-                            ""
-                    in
-                    Expect.equal (decodeBytes string bs) (Just str)
-            , test "\"patate\"" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x66
-                                    , Bytes.unsignedInt8 0x70
-                                    , Bytes.unsignedInt8 0x61
-                                    , Bytes.unsignedInt8 0x74
-                                    , Bytes.unsignedInt8 0x61
-                                    , Bytes.unsignedInt8 0x74
-                                    , Bytes.unsignedInt8 0x65
-                                    ]
-
-                        str =
-                            "patate"
-                    in
-                    Expect.equal (decodeBytes string bs) (Just str)
-            , test "\"🌈\"" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x64
-                                    , Bytes.unsignedInt8 0xF0
-                                    , Bytes.unsignedInt8 0x9F
-                                    , Bytes.unsignedInt8 0x8C
-                                    , Bytes.unsignedInt8 0x88
-                                    ]
-
-                        str =
-                            "🌈"
-                    in
-                    Expect.equal (decodeBytes string bs) (Just str)
+        , describe "Major Type 3: a text string"
+            [ hex [ 0x60 ]
+                |> expect string (Just "")
+            , hex [ 0x66, 0x70, 0x61, 0x74, 0x61, 0x74, 0x65 ]
+                |> expect string (Just "patate")
+            , hex [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
+                |> expect string (Just "🌈")
+            , hex [ 0x63, 0x70, 0x61 ]
+                |> expect string Nothing
             ]
-        , describe "Major Type 4"
-            [ test "[]" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x80
-                                    ]
-                    in
-                    Expect.equal (decodeBytes (list int) bs) (Just [])
-            , test "[14,42,1337]" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x83
-                                    , Bytes.unsignedInt8 0x0E
-                                    , Bytes.unsignedInt8 0x18
-                                    , Bytes.unsignedInt8 0x2A
-                                    , Bytes.unsignedInt8 0x19
-                                    , Bytes.unsignedInt32 BE 0x05390000
-                                    ]
-                    in
-                    Expect.equal (decodeBytes (list int) bs) (Just [ 14, 42, 1337 ])
-            , test "[14,??] (not an known element)" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x82
-                                    , Bytes.unsignedInt8 0x0E
-                                    , Bytes.unsignedInt8 0xFF
-                                    ]
-                    in
-                    Expect.equal (decodeBytes (list int) bs) Nothing
-            , test "[14(,??)] (invalid size)" <|
-                \_ ->
-                    let
-                        bs =
-                            Bytes.encode <|
-                                Bytes.sequence
-                                    [ Bytes.unsignedInt8 0x82
-                                    , Bytes.unsignedInt8 0x0E
-                                    ]
-                    in
-                    Expect.equal (decodeBytes (list int) bs) Nothing
+        , describe "Major Type 4: an array of data items"
+            [ hex [ 0x80 ]
+                |> expect (list int) (Just [])
+            , hex [ 0x83, 0x0E, 0x18, 0x2A, 0x19, 0x05, 0x39, 0x00, 0x00 ]
+                |> expect (list int) (Just [ 14, 42, 1337 ])
+            , hex [ 0x82, 0x0E, 0xFF ]
+                |> expect (list int) Nothing
+            , hex [ 0x82, 0x0E ]
+                |> expect (list int) Nothing
             ]
         ]
+
+
+{-| Alias / Shortcut to write test cases
+-}
+expect : Decoder a -> Maybe a -> Bytes -> Test
+expect decoder output input =
+    test (Debug.toString input ++ " -> " ++ Debug.toString output) <|
+        \_ -> input |> decodeBytes decoder |> Expect.equal output
+
+
+{-| Convert a list of BE unsigned8 to bytes
+-}
+hex : List Int -> Bytes
+hex =
+    List.map Bytes.unsignedInt8 >> Bytes.sequence >> Bytes.encode
