@@ -7,7 +7,7 @@ bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode exposing (bytes, decodeBytes, int, list)
+import CBOR.Decode exposing (bytes, decodeBytes, int, list, string)
 import Expect
 import Test exposing (Test, describe, test)
 
@@ -228,6 +228,57 @@ suite =
                                     ]
                     in
                     Expect.equal (decodeBytes bytes bs) (Just innerbs)
+            ]
+        , describe "Major Type 3"
+            [ test "\"\"" <|
+                \_ ->
+                    let
+                        bs =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x60
+                                    ]
+
+                        str =
+                            ""
+                    in
+                    Expect.equal (decodeBytes string bs) (Just str)
+            , test "\"patate\"" <|
+                \_ ->
+                    let
+                        bs =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x66
+                                    , Bytes.unsignedInt8 0x70
+                                    , Bytes.unsignedInt8 0x61
+                                    , Bytes.unsignedInt8 0x74
+                                    , Bytes.unsignedInt8 0x61
+                                    , Bytes.unsignedInt8 0x74
+                                    , Bytes.unsignedInt8 0x65
+                                    ]
+
+                        str =
+                            "patate"
+                    in
+                    Expect.equal (decodeBytes string bs) (Just str)
+            , test "\"🌈\"" <|
+                \_ ->
+                    let
+                        bs =
+                            Bytes.encode <|
+                                Bytes.sequence
+                                    [ Bytes.unsignedInt8 0x64
+                                    , Bytes.unsignedInt8 0xF0
+                                    , Bytes.unsignedInt8 0x9F
+                                    , Bytes.unsignedInt8 0x8C
+                                    , Bytes.unsignedInt8 0x88
+                                    ]
+
+                        str =
+                            "🌈"
+                    in
+                    Expect.equal (decodeBytes string bs) (Just str)
             ]
         , describe "Major Type 4"
             [ test "[]" <|

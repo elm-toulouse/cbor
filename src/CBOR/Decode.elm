@@ -1,6 +1,6 @@
 module CBOR.Decode exposing
     ( Decoder(..), decodeBytes
-    , int, bytes
+    , int, bytes, string
     , list
     )
 
@@ -18,7 +18,7 @@ MessagePack.
 
 ## Primitives
 
-@docs int, bytes
+@docs int, bytes, string
 
 
 ## Data Structures
@@ -81,16 +81,17 @@ int =
 
 bytes : Decoder Bytes
 bytes =
-    let
-        len =
-            unsigned
-
-        payload =
-            Bytes.bytes
-    in
     majorType 2
-        |> Bytes.andThen len
-        |> Bytes.andThen payload
+        |> Bytes.andThen unsigned
+        |> Bytes.andThen Bytes.bytes
+        |> Decoder
+
+
+string : Decoder String
+string =
+    majorType 3
+        |> Bytes.andThen unsigned
+        |> Bytes.andThen Bytes.string
         |> Decoder
 
 
