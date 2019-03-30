@@ -1,6 +1,6 @@
 module CBOR.Decode exposing
     ( Decoder(..), decodeBytes
-    , int, bytes, string
+    , bool, int, string, bytes
     , list, dict
     )
 
@@ -18,7 +18,7 @@ MessagePack.
 
 ## Primitives
 
-@docs int, bytes, string
+@docs bool, int, string, bytes
 
 
 ## Data Structures
@@ -55,6 +55,24 @@ decodeBytes (Decoder decoder) =
 -------------------------------------------------------------------------------}
 
 
+bool : Decoder Bool
+bool =
+    let
+        bool_ a =
+            if a == 20 then
+                Bytes.succeed False
+
+            else if a == 21 then
+                Bytes.succeed True
+
+            else
+                Bytes.fail
+    in
+    majorType 7
+        |> Bytes.andThen bool_
+        |> Decoder
+
+
 int : Decoder Int
 int =
     let
@@ -80,19 +98,19 @@ int =
     majorType01 |> Decoder
 
 
-bytes : Decoder Bytes
-bytes =
-    majorType 2
-        |> Bytes.andThen unsigned
-        |> Bytes.andThen Bytes.bytes
-        |> Decoder
-
-
 string : Decoder String
 string =
     majorType 3
         |> Bytes.andThen unsigned
         |> Bytes.andThen Bytes.string
+        |> Decoder
+
+
+bytes : Decoder Bytes
+bytes =
+    majorType 2
+        |> Bytes.andThen unsigned
+        |> Bytes.andThen Bytes.bytes
         |> Decoder
 
 

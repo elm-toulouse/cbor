@@ -8,7 +8,7 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode exposing (Decoder, bytes, decodeBytes, dict, int, list, string)
+import CBOR.Decode exposing (Decoder, bool, bytes, decodeBytes, dict, int, list, string)
 import Dict
 import Expect
 import Test exposing (Test, describe, test)
@@ -112,6 +112,12 @@ suite =
                     )
             , hex [ 0xA1 ]
                 |> expect (dict string int) Nothing
+            ]
+        , describe "Major type 7: floating-point numbers and simple data types"
+            [ hex [ 0xF4 ]
+                |> expect bool (Just False)
+            , hex [ 0xF5 ]
+                |> expect bool (Just True)
             ]
         ]
 
