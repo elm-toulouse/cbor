@@ -1,13 +1,15 @@
 module CBOR.DecodeTests exposing (suite)
 
 {-| Tests for the various decoding primitives available from the library.
-It takes data from an online tool <http://cbor.me/> which provides
-bidirectional conversion from raw bytes to CBOR, and vice-versa.
+Test vectors are provided in Appendix A of the RFC 7049, as well as a couple of
+additions that are more elm-specific, obtained from an online tool <http://cbor.me/>
+which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 -}
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode exposing (Decoder, bytes, decodeBytes, int, list, string)
+import CBOR.Decode exposing (Decoder, bytes, decodeBytes, dict, int, list, string)
+import Dict
 import Expect
 import Test exposing (Test, describe, test)
 
@@ -16,10 +18,18 @@ suite : Test
 suite =
     describe "CBOR.Decode"
         [ describe "Major Type 0: an unsigned integer"
-            [ hex [ 0x0E ]
+            [ hex [ 0x00 ]
+                |> expect int (Just 0)
+            , hex [ 0x01 ]
+                |> expect int (Just 1)
+            , hex [ 0x0E ]
                 |> expect int (Just 14)
-            , hex [ 0x18, 0x2A ]
-                |> expect int (Just 42)
+            , hex [ 0x17 ]
+                |> expect int (Just 23)
+            , hex [ 0x18, 0x18 ]
+                |> expect int (Just 24)
+            , hex [ 0x18, 0x19 ]
+                |> expect int (Just 25)
             , hex [ 0x19, 0x05, 0x39 ]
                 |> expect int (Just 1337)
             , hex [ 0x1A, 0x00, 0x02, 0x33, 0x56 ]
@@ -32,10 +42,10 @@ suite =
                 |> expect int Nothing
             ]
         , describe "Major Type 1: a negative integer"
-            [ hex [ 0x2D ]
+            [ hex [ 0x20 ]
+                |> expect int (Just -1)
+            , hex [ 0x2D ]
                 |> expect int (Just -14)
-            , hex [ 0x38, 0x29 ]
-                |> expect int (Just -42)
             , hex [ 0x39, 0x05, 0x38 ]
                 |> expect int (Just -1337)
             , hex [ 0x3A, 0x00, 0x02, 0x33, 0x55 ]
@@ -70,10 +80,38 @@ suite =
                 |> expect (list int) (Just [])
             , hex [ 0x83, 0x0E, 0x18, 0x2A, 0x19, 0x05, 0x39, 0x00, 0x00 ]
                 |> expect (list int) (Just [ 14, 42, 1337 ])
+            , hex [ 0x83, 0x81, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05 ]
+                |> expect (list (list int)) (Just [ [ 1 ], [ 2, 3 ], [ 4, 5 ] ])
             , hex [ 0x82, 0x0E, 0xFF ]
                 |> expect (list int) Nothing
             , hex [ 0x82, 0x0E ]
                 |> expect (list int) Nothing
+            ]
+        , describe "Major Type 5: a map of pairs of data items"
+            [ hex [ 0xA0 ]
+                |> expect (dict string int) (Just Dict.empty)
+            , hex [ 0xA1, 0x0E, 0x18, 0x2A ]
+                |> expect (dict int int)
+                    (Just <|
+                        Dict.fromList [ ( 14, 42 ) ]
+                    )
+            , hex [ 0xA1, 0x66, 0x70, 0x61, 0x74, 0x61, 0x74, 0x65, 0x0E ]
+                |> expect (dict string int)
+                    (Just <|
+                        Dict.fromList [ ( "patate", 14 ) ]
+                    )
+            , hex [ 0xA1, 0x0E, 0x66, 0x70, 0x61, 0x74, 0x61, 0x74, 0x65 ]
+                |> expect (dict int string)
+                    (Just <|
+                        Dict.fromList [ ( 14, "patate" ) ]
+                    )
+            , hex [ 0xA1, 0x61, 0x61, 0x82, 0x0E, 0x18, 0x2A ]
+                |> expect (dict string (list int))
+                    (Just <|
+                        Dict.fromList [ ( "a", [ 14, 42 ] ) ]
+                    )
+            , hex [ 0xA1 ]
+                |> expect (dict string int) Nothing
             ]
         ]
 

@@ -1,7 +1,7 @@
 module CBOR.Decode exposing
     ( Decoder(..), decodeBytes
     , int, bytes, string
-    , list
+    , list, dict
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -23,13 +23,14 @@ MessagePack.
 
 ## Data Structures
 
-@docs list
+@docs list, dict
 
 -}
 
 import Bitwise exposing (and, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Bytes
+import Dict exposing (Dict)
 import Tuple exposing (first)
 
 
@@ -102,16 +103,32 @@ string =
 
 
 list : Decoder a -> Decoder (List a)
-list (Decoder decodeElem) =
+list (Decoder elem) =
     let
         step ( n, es ) =
             if n <= 0 then
                 es |> List.reverse |> Bytes.Done |> Bytes.succeed
 
             else
-                decodeElem |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+                elem |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
     in
     majorType 4
+        |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
+        |> Decoder
+
+
+dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
+dict (Decoder key) (Decoder value) =
+    let
+        step ( n, es ) =
+            if n <= 0 then
+                es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
+
+            else
+                Bytes.map2 Tuple.pair key value
+                    |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+    in
+    majorType 5
         |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
         |> Decoder
 
