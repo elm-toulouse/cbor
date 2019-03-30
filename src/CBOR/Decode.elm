@@ -27,7 +27,7 @@ MessagePack.
 
 -}
 
-import Bitwise exposing (shiftRightBy)
+import Bitwise exposing (and, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Bytes
 import Tuple exposing (first)
@@ -57,44 +57,40 @@ decodeBytes (Decoder decoder) =
 int : Decoder Int
 int =
     let
-        majorType =
-            Bytes.unsignedInt8
-    in
-    majorType
-        |> Bytes.andThen
-            (\a ->
-                if shiftRightBy 5 a == 0 then
-                    -- Major type 0: an unsigned integer
-                    unsigned a
-
-                else if shiftRightBy 5 a == 1 then
-                    -- Major type 1: a negative integer
-                    Bytes.map (\x -> negate x - 1) (unsigned (a - 2 ^ 5))
-
-                else
-                    Bytes.fail
-            )
-        |> Decoder
-
-
-bytes : Decoder Bytes
-bytes =
-    let
-        majorType =
+        -- NOTE Unfortunately, we don't have any 'Alternative'-ish instance on
+        -- @Byte.Decoder@, or something if 'oneOf' to try several decoders in
+        -- sequence. Since Elm conflates representation of unsigned and negative
+        -- integer into one 'int' type, we have to define an ad-hoc decoder for
+        -- the major types here to handle both the Major type 0 and 1.
+        majorType01 =
             Bytes.unsignedInt8
                 |> Bytes.andThen
                     (\a ->
-                        -- Major type 2:  a byte string
-                        if shiftRightBy 5 a == 2 then
-                            Bytes.succeed (a - 2 ^ 6)
+                        if shiftRightBy 5 a == 0 then
+                            unsigned a
+
+                        else if shiftRightBy 5 a == 1 then
+                            Bytes.map (\x -> negate x - 1) (unsigned (and a majorTypeMask))
 
                         else
                             Bytes.fail
                     )
     in
-    majorType
-        |> Bytes.andThen unsigned
-        |> Bytes.andThen Bytes.bytes
+    majorType01 |> Decoder
+
+
+bytes : Decoder Bytes
+bytes =
+    let
+        len =
+            unsigned
+
+        payload =
+            Bytes.bytes
+    in
+    majorType 2
+        |> Bytes.andThen len
+        |> Bytes.andThen payload
         |> Decoder
 
 
@@ -107,18 +103,6 @@ bytes =
 list : Decoder a -> Decoder (List a)
 list (Decoder decodeElem) =
     let
-        majorType =
-            Bytes.unsignedInt8
-                |> Bytes.andThen
-                    (\a ->
-                        -- Major type 4: an array of data items
-                        if shiftRightBy 5 a == 4 then
-                            Bytes.succeed (a - 2 ^ 7)
-
-                        else
-                            Bytes.fail
-                    )
-
         step ( n, es ) =
             if n <= 0 then
                 es |> List.reverse |> Bytes.Done |> Bytes.succeed
@@ -126,7 +110,7 @@ list (Decoder decodeElem) =
             else
                 decodeElem |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
     in
-    majorType
+    majorType 4
         |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
         |> Decoder
 
@@ -135,6 +119,37 @@ list (Decoder decodeElem) =
 {-------------------------------------------------------------------------------
                                  Internal
 -------------------------------------------------------------------------------}
+
+
+{-| Decode a major type and return the additional data if it matches. Major
+types are encoded using 3 bits in a single byte. The meaning given to the
+additional value depends on the major type itself.
+
+           Major type -----*                  *---------- 5-bit additional data
+                           |                  |
+                           |                  |
+                    <------------> <---------------------->
+                     2⁷ | 2⁶ | 2⁵ | 2⁴ | 2³ | 2² | 2¹ | 2⁰
+
+-}
+majorType : Int -> Bytes.Decoder Int
+majorType k =
+    Bytes.unsignedInt8
+        |> Bytes.andThen
+            (\a ->
+                if shiftRightBy 5 a == k then
+                    Bytes.succeed (and a majorTypeMask)
+
+                else
+                    Bytes.fail
+            )
+
+
+{-| First three bits at 0, rest at 1
+-}
+majorTypeMask : Int
+majorTypeMask =
+    2 ^ 5 - 1
 
 
 {-| Int in Elm and JavaScript are safe in the range: -2^53 to 2^53 - 1, though,
