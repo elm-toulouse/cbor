@@ -81,6 +81,8 @@ suite =
                 |> expect bytes (Just <| hex [ 0x14 ])
             , hex [ 0x43, 0x14, 0x42, 0xFF ]
                 |> expect bytes (Just <| hex [ 0x14, 0x42, 0xFF ])
+            , hex [ 0x5F, 0x42, 0x01, 0x02, 0x43, 0x03, 0x04, 0x05, 0xFF ]
+                |> expect bytes (Just <| hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ])
             ]
         , describe "Major Type 3: a text string"
             [ hex [ 0x60 ]
@@ -91,6 +93,8 @@ suite =
                 |> expect string (Just "🌈")
             , hex [ 0x63, 0x70, 0x61 ]
                 |> expect string Nothing
+            , hex [ 0x7F, 0x61, 0x61, 0x61, 0x62, 0xFF ]
+                |> expect string (Just "ab")
             ]
         , describe "Major Type 4: an array of data items"
             [ hex [ 0x80 ]

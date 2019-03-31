@@ -42,6 +42,7 @@ MessagePack.
 import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Bytes
+import Bytes.Encode
 import Dict exposing (Dict)
 import Tuple exposing (first)
 
@@ -119,12 +120,64 @@ float =
 
 string : Decoder String
 string =
-    Decoder (majorType 3) <| (unsigned >> Bytes.andThen Bytes.string)
+    let
+        indef es =
+            Bytes.unsignedInt8
+                |> Bytes.andThen
+                    (\a ->
+                        if a == 0xFF then
+                            es
+                                |> List.reverse
+                                |> String.concat
+                                |> Bytes.Done
+                                |> Bytes.succeed
+
+                        else
+                            majorTypeRaw 3 a
+                                |> Bytes.andThen unsigned
+                                |> Bytes.andThen Bytes.string
+                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                    )
+    in
+    Decoder (majorType 3) <|
+        \a ->
+            if a == 31 then
+                Bytes.loop [] indef
+
+            else
+                unsigned a |> Bytes.andThen Bytes.string
 
 
 bytes : Decoder Bytes
 bytes =
-    Decoder (majorType 2) <| (unsigned >> Bytes.andThen Bytes.bytes)
+    let
+        indef es =
+            Bytes.unsignedInt8
+                |> Bytes.andThen
+                    (\a ->
+                        if a == 0xFF then
+                            es
+                                |> List.reverse
+                                |> List.map Bytes.Encode.bytes
+                                |> Bytes.Encode.sequence
+                                |> Bytes.Encode.encode
+                                |> Bytes.Done
+                                |> Bytes.succeed
+
+                        else
+                            majorTypeRaw 2 a
+                                |> Bytes.andThen unsigned
+                                |> Bytes.andThen Bytes.bytes
+                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                    )
+    in
+    Decoder (majorType 2) <|
+        \a ->
+            if a == 31 then
+                Bytes.loop [] indef
+
+            else
+                unsigned a |> Bytes.andThen Bytes.bytes
 
 
 
@@ -151,6 +204,12 @@ list ((Decoder _ elemPayload) as elem) =
                             es |> List.reverse |> Bytes.Done |> Bytes.succeed
 
                         else
+                            -- TODO Be more strict on the elem payload validation
+                            -- Ideally, we would verify that the major type
+                            -- matches whatever was expected from the original
+                            -- decoder. This could be done via defining the
+                            -- major type as '(Int -> Bytes.Decoder a)' in the
+                            -- 'Decoder'
                             elemPayload (and a 31) |> Bytes.map (\e -> Bytes.Loop (e :: es))
                     )
     in
@@ -182,6 +241,12 @@ dict ((Decoder _ keyPayload) as key) value =
                             es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
 
                         else
+                            -- TODO Be more strict on the key payload validation
+                            -- Ideally, we would verify that the major type
+                            -- matches whatever was expected from the original
+                            -- decoder. This could be done via defining the
+                            -- major type as '(Int -> Bytes.Decoder a)' in the
+                            -- 'Decoder'
                             Bytes.map2 Tuple.pair (keyPayload (and a 31)) (runDecoder value)
                                 |> Bytes.map (\e -> Bytes.Loop (e :: es))
                     )
@@ -430,15 +495,20 @@ additional value depends on the major type itself.
 -}
 majorType : Int -> Bytes.Decoder Int
 majorType k =
-    Bytes.unsignedInt8
-        |> Bytes.andThen
-            (\a ->
-                if shiftRightBy 5 a == k then
-                    Bytes.succeed (and a 31)
+    Bytes.unsignedInt8 |> Bytes.andThen (majorTypeRaw k)
 
-                else
-                    Bytes.fail
-            )
+
+{-| Continue parsing major type with the given value 'a'. It give the caller the
+possiblity to do something
+with the raw value of 'a' before it gets normalized
+-}
+majorTypeRaw : Int -> Int -> Bytes.Decoder Int
+majorTypeRaw k a =
+    if shiftRightBy 5 a == k then
+        Bytes.succeed (and a 31)
+
+    else
+        Bytes.fail
 
 
 {-| Int in Elm and JavaScript are safe in the range: -2^53 to 2^53 - 1, though,
