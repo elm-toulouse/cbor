@@ -134,7 +134,7 @@ bytes =
 
 
 list : Decoder a -> Decoder (List a)
-list ((Decoder elemMajor elemPayload) as elem) =
+list ((Decoder _ elemPayload) as elem) =
     let
         finite ( n, es ) =
             if n <= 0 then
@@ -164,17 +164,35 @@ list ((Decoder elemMajor elemPayload) as elem) =
 
 
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
-dict key value =
+dict ((Decoder _ keyPayload) as key) value =
     let
-        step ( n, es ) =
+        finite ( n, es ) =
             if n <= 0 then
                 es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
 
             else
                 Bytes.map2 Tuple.pair (runDecoder key) (runDecoder value)
                     |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+
+        indef es =
+            Bytes.unsignedInt8
+                |> Bytes.andThen
+                    (\a ->
+                        if a == 0xFF then
+                            es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
+
+                        else
+                            Bytes.map2 Tuple.pair (keyPayload (and a 31)) (runDecoder value)
+                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                    )
     in
-    Decoder (majorType 5) <| unsigned >> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
+    Decoder (majorType 5) <|
+        \a ->
+            if a == 31 then
+                Bytes.loop [] indef
+
+            else
+                unsigned a |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) finite)
 
 
 

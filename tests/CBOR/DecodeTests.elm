@@ -135,6 +135,16 @@ suite =
                     )
             , hex [ 0xA1 ]
                 |> expect (dict string int) Nothing
+            , hex [ 0xBF, 0x61, 0x61, 0x0E, 0x61, 0x62, 0x18, 0x2A, 0xFF ]
+                |> expect (dict string int)
+                    (Just <|
+                        Dict.fromList [ ( "a", 14 ), ( "b", 42 ) ]
+                    )
+            , hex [ 0xBF, 0x61, 0x61, 0x9F, 0xBF, 0x61, 0x62, 0x0E, 0xFF, 0xFF, 0xFF ]
+                |> expect (dict string (list (dict string int)))
+                    (Just <|
+                        Dict.fromList [ ( "a", [ Dict.fromList [ ( "b", 14 ) ] ] ) ]
+                    )
             ]
         , describe "Major type 6: tags"
             [ hex
