@@ -99,10 +99,16 @@ suite =
                 |> expect (list int) (Just [ 14, 42, 1337 ])
             , hex [ 0x83, 0x81, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05 ]
                 |> expect (list (list int)) (Just [ [ 1 ], [ 2, 3 ], [ 4, 5 ] ])
+            , hex ([ 0x98, 0x19 ] ++ List.repeat 25 0x00)
+                |> expect (list int) (Just (List.repeat 25 0))
             , hex [ 0x82, 0x0E, 0xFF ]
                 |> expect (list int) Nothing
             , hex [ 0x82, 0x0E ]
                 |> expect (list int) Nothing
+            , hex [ 0x9F, 0x01, 0x02, 0x03, 0x04, 0xFF ]
+                |> expect (list int) (Just [ 1, 2, 3, 4 ])
+            , hex [ 0x9F, 0x81, 0x01, 0x9F, 0x02, 0x02, 0xFF, 0x82, 0x03, 0x03, 0xFF ]
+                |> expect (list (list int)) (Just [ [ 1 ], [ 2, 2 ], [ 3, 3 ] ])
             ]
         , describe "Major Type 5: a map of pairs of data items"
             [ hex [ 0xA0 ]

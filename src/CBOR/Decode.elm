@@ -42,7 +42,6 @@ MessagePack.
 import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Bytes
-import Bytes.Encode as Encode exposing (encode, sequence)
 import Dict exposing (Dict)
 import Tuple exposing (first)
 
@@ -54,12 +53,12 @@ import Tuple exposing (first)
 
 
 type Decoder a
-    = Decoder (Bytes.Decoder a)
+    = Decoder (Bytes.Decoder Int) (Int -> Bytes.Decoder a)
 
 
 decodeBytes : Decoder a -> Bytes -> Maybe a
-decodeBytes (Decoder decoder) =
-    Bytes.decode decoder
+decodeBytes d =
+    Bytes.decode (runDecoder d)
 
 
 
@@ -70,8 +69,8 @@ decodeBytes (Decoder decoder) =
 
 bool : Decoder Bool
 bool =
-    let
-        bool_ a =
+    Decoder (majorType 7) <|
+        \a ->
             if a == 20 then
                 Bytes.succeed False
 
@@ -80,41 +79,31 @@ bool =
 
             else
                 Bytes.fail
-    in
-    majorType 7
-        |> Bytes.andThen bool_
-        |> Decoder
 
 
 int : Decoder Int
 int =
-    let
-        -- NOTE Unfortunately, we don't have any 'Alternative'-ish instance on
-        -- @Byte.Decoder@, or something like 'oneOf' to try several decoders in
-        -- sequence. Since Elm conflates representation of unsigned and negative
-        -- integer into one 'int' type, we have to define an ad-hoc decoder for
-        -- the major types here to handle both the Major type 0 and 1.
-        majorType01 =
-            Bytes.unsignedInt8
-                |> Bytes.andThen
-                    (\a ->
-                        if shiftRightBy 5 a == 0 then
-                            unsigned a
+    -- NOTE Unfortunately, we don't have any 'Alternative'-ish instance on
+    -- @Byte.Decoder@, or something like 'oneOf' to try several decoders in
+    -- sequence. Since Elm conflates representation of unsigned and negative
+    -- integer into one 'int' type, we have to define an ad-hoc decoder for
+    -- the major types here to handle both the Major type 0 and 1.
+    Decoder Bytes.unsignedInt8 <|
+        \a ->
+            if shiftRightBy 5 a == 0 then
+                unsigned a
 
-                        else if shiftRightBy 5 a == 1 then
-                            Bytes.map (\x -> negate x - 1) (unsigned (and a 31))
+            else if shiftRightBy 5 a == 1 then
+                Bytes.map (\x -> negate x - 1) (unsigned (and a 31))
 
-                        else
-                            Bytes.fail
-                    )
-    in
-    majorType01 |> Decoder
+            else
+                Bytes.fail
 
 
 float : Decoder Float
 float =
-    let
-        value a =
+    Decoder (majorType 7) <|
+        \a ->
             if a == 25 then
                 float16
 
@@ -126,26 +115,16 @@ float =
 
             else
                 Bytes.fail
-    in
-    majorType 7
-        |> Bytes.andThen value
-        |> Decoder
 
 
 string : Decoder String
 string =
-    majorType 3
-        |> Bytes.andThen unsigned
-        |> Bytes.andThen Bytes.string
-        |> Decoder
+    Decoder (majorType 3) <| (unsigned >> Bytes.andThen Bytes.string)
 
 
 bytes : Decoder Bytes
 bytes =
-    majorType 2
-        |> Bytes.andThen unsigned
-        |> Bytes.andThen Bytes.bytes
-        |> Decoder
+    Decoder (majorType 2) <| (unsigned >> Bytes.andThen Bytes.bytes)
 
 
 
@@ -155,34 +134,47 @@ bytes =
 
 
 list : Decoder a -> Decoder (List a)
-list (Decoder elem) =
+list ((Decoder elemMajor elemPayload) as elem) =
     let
-        step ( n, es ) =
+        finite ( n, es ) =
             if n <= 0 then
                 es |> List.reverse |> Bytes.Done |> Bytes.succeed
 
             else
-                elem |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+                runDecoder elem |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+
+        indef es =
+            Bytes.unsignedInt8
+                |> Bytes.andThen
+                    (\a ->
+                        if a == 0xFF then
+                            es |> List.reverse |> Bytes.Done |> Bytes.succeed
+
+                        else
+                            elemPayload (and a 31) |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                    )
     in
-    majorType 4
-        |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
-        |> Decoder
+    Decoder (majorType 4) <|
+        \a ->
+            if a == 31 then
+                Bytes.loop [] indef
+
+            else
+                unsigned a |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) finite)
 
 
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
-dict (Decoder key) (Decoder value) =
+dict key value =
     let
         step ( n, es ) =
             if n <= 0 then
                 es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
 
             else
-                Bytes.map2 Tuple.pair key value
+                Bytes.map2 Tuple.pair (runDecoder key) (runDecoder value)
                     |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
     in
-    majorType 5
-        |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
-        |> Decoder
+    Decoder (majorType 5) <| unsigned >> Bytes.andThen (\n -> Bytes.loop ( n, [] ) step)
 
 
 
@@ -192,37 +184,34 @@ dict (Decoder key) (Decoder value) =
 
 
 succeed : a -> Decoder a
-succeed =
-    Bytes.succeed >> Decoder
+succeed a =
+    -- "major type" here can be anything BUT 31 (marker for indefinite structs)
+    -- We currently use 30 because it's unassigned.
+    Decoder (Bytes.succeed 0) (\_ -> Bytes.succeed a)
 
 
 fail : Decoder a
 fail =
-    Decoder Bytes.fail
+    Decoder Bytes.fail (\_ -> Bytes.fail)
 
 
 andThen : (a -> Decoder b) -> Decoder a -> Decoder b
-andThen fn (Decoder decoder) =
-    decoder
-        |> Bytes.andThen
-            (\a ->
-                let
-                    (Decoder b) =
-                        fn a
-                in
-                b
-            )
-        |> Decoder
+andThen fn a =
+    Decoder (Bytes.succeed 0) (\_ -> runDecoder a |> Bytes.andThen (fn >> runDecoder))
 
 
 map : (a -> value) -> Decoder a -> Decoder value
-map fn (Decoder a) =
-    a |> Bytes.map fn |> Decoder
+map fn a =
+    Decoder (Bytes.succeed 0) (\_ -> runDecoder a |> Bytes.map fn)
 
 
 map2 : (a -> b -> value) -> Decoder a -> Decoder b -> Decoder value
-map2 fn (Decoder a) (Decoder b) =
-    Bytes.map2 fn a b |> Decoder
+map2 fn a b =
+    Decoder (Bytes.succeed 0) <|
+        \_ ->
+            Bytes.map2 fn
+                (runDecoder a)
+                (runDecoder b)
 
 
 map3 :
@@ -231,8 +220,13 @@ map3 :
     -> Decoder b
     -> Decoder c
     -> Decoder value
-map3 fn (Decoder a) (Decoder b) (Decoder c) =
-    Bytes.map3 fn a b c |> Decoder
+map3 fn a b c =
+    Decoder (Bytes.succeed 0) <|
+        \_ ->
+            Bytes.map3 fn
+                (runDecoder a)
+                (runDecoder b)
+                (runDecoder c)
 
 
 map4 :
@@ -242,8 +236,14 @@ map4 :
     -> Decoder c
     -> Decoder d
     -> Decoder value
-map4 fn (Decoder a) (Decoder b) (Decoder c) (Decoder d) =
-    Bytes.map4 fn a b c d |> Decoder
+map4 fn a b c d =
+    Decoder (Bytes.succeed 0) <|
+        \_ ->
+            Bytes.map4 fn
+                (runDecoder a)
+                (runDecoder b)
+                (runDecoder c)
+                (runDecoder d)
 
 
 map5 :
@@ -254,8 +254,15 @@ map5 :
     -> Decoder d
     -> Decoder e
     -> Decoder value
-map5 fn (Decoder a) (Decoder b) (Decoder c) (Decoder d) (Decoder e) =
-    Bytes.map5 fn a b c d e |> Decoder
+map5 fn a b c d e =
+    Decoder (Bytes.succeed 0) <|
+        \_ ->
+            Bytes.map5 fn
+                (runDecoder a)
+                (runDecoder b)
+                (runDecoder c)
+                (runDecoder d)
+                (runDecoder e)
 
 
 
@@ -303,63 +310,62 @@ type Tag
 
 tag : Decoder Tag
 tag =
-    majorType 6
-        |> Bytes.andThen unsigned
-        |> Bytes.map
-            (\t ->
-                case t of
-                    0 ->
-                        StandardDateTime
+    Decoder (majorType 6) <|
+        unsigned
+            >> Bytes.map
+                (\t ->
+                    case t of
+                        0 ->
+                            StandardDateTime
 
-                    1 ->
-                        EpochDateTime
+                        1 ->
+                            EpochDateTime
 
-                    2 ->
-                        PositiveBigNum
+                        2 ->
+                            PositiveBigNum
 
-                    3 ->
-                        NegativeBigNum
+                        3 ->
+                            NegativeBigNum
 
-                    4 ->
-                        DecimalFraction
+                        4 ->
+                            DecimalFraction
 
-                    5 ->
-                        BigFloat
+                        5 ->
+                            BigFloat
 
-                    21 ->
-                        Base64UrlConversion
+                        21 ->
+                            Base64UrlConversion
 
-                    22 ->
-                        Base64Conversion
+                        22 ->
+                            Base64Conversion
 
-                    23 ->
-                        Base16Conversion
+                        23 ->
+                            Base16Conversion
 
-                    24 ->
-                        Cbor
+                        24 ->
+                            Cbor
 
-                    32 ->
-                        Uri
+                        32 ->
+                            Uri
 
-                    33 ->
-                        Base64Url
+                        33 ->
+                            Base64Url
 
-                    34 ->
-                        Base64
+                        34 ->
+                            Base64
 
-                    35 ->
-                        Regex
+                        35 ->
+                            Regex
 
-                    36 ->
-                        Mime
+                        36 ->
+                            Mime
 
-                    55799 ->
-                        IsCbor
+                        55799 ->
+                            IsCbor
 
-                    _ ->
-                        Unknown t
-            )
-        |> Decoder
+                        _ ->
+                            Unknown t
+                )
 
 
 tagged : Tag -> Decoder a -> Decoder ( Tag, a )
@@ -379,6 +385,18 @@ tagged t a =
 {-------------------------------------------------------------------------------
                                   Internal
 -------------------------------------------------------------------------------}
+
+
+{-| Run a decoder in sequence, getting first the major type, and then the
+payload. Note that, separating the definition of the payload and the major type
+allows us to implement various things like indefinite list or maybes, where, we
+can start to peak at the next byte and take action depending on its value.
+This is only possible because all items are prefixed with a major type
+announcing what they are!
+-}
+runDecoder : Decoder a -> Bytes.Decoder a
+runDecoder (Decoder major payload) =
+    major |> Bytes.andThen payload
 
 
 {-| Decode a major type and return the additional data if it matches. Major
