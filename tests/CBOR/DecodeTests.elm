@@ -8,7 +8,18 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode exposing (Decoder, bool, bytes, decodeBytes, dict, int, list, string)
+import CBOR.Decode
+    exposing
+        ( Decoder
+        , bool
+        , bytes
+        , decodeBytes
+        , dict
+        , float
+        , int
+        , list
+        , string
+        )
 import Dict
 import Expect
 import Test exposing (Test, describe, test)
@@ -118,6 +129,26 @@ suite =
                 |> expect bool (Just False)
             , hex [ 0xF5 ]
                 |> expect bool (Just True)
+            , hex [ 0xF9, 0x80, 0x00 ]
+                |> expect float (Just -0.0)
+            , hex [ 0xF9, 0x3C, 0x00 ]
+                |> expect float (Just 1.0)
+            , hex [ 0xF9, 0x55, 0x22 ]
+                |> expect float (Just 82.125)
+            , hex [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
+                |> expect float (Just 1.1)
+            , hex [ 0xF9, 0x3E, 0x00 ]
+                |> expect float (Just 1.5)
+            , hex [ 0xFA, 0x47, 0xC3, 0x50, 0x00 ]
+                |> expect float (Just 100000.0)
+            , hex [ 0xFB, 0x7E, 0x37, 0xE4, 0x3C, 0x88, 0x00, 0x75, 0x9C ]
+                |> expect float (Just 1.0e300)
+            , hex [ 0xFB, 0xC0, 0x10, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66 ]
+                |> expect float (Just -4.1)
+            , hex [ 0xF9, 0x7C, 0x00 ]
+                |> expect float (Just (1 / 0))
+            , hex [ 0xFA, 0x7F, 0x80, 0x00, 0x00 ]
+                |> expect float (Just (1 / 0))
             ]
         ]
 
