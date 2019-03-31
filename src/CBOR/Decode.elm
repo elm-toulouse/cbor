@@ -78,7 +78,7 @@ int : Decoder Int
 int =
     let
         -- NOTE Unfortunately, we don't have any 'Alternative'-ish instance on
-        -- @Byte.Decoder@, or something if 'oneOf' to try several decoders in
+        -- @Byte.Decoder@, or something like 'oneOf' to try several decoders in
         -- sequence. Since Elm conflates representation of unsigned and negative
         -- integer into one 'int' type, we have to define an ad-hoc decoder for
         -- the major types here to handle both the Major type 0 and 1.
@@ -186,7 +186,7 @@ additional value depends on the major type itself.
            Major type -----*                  *---------- 5-bit additional data
                            |                  |
                            |                  |
-                    <------------> <---------------------->
+                    /------------\ /----------------------\
                      2⁷ | 2⁶ | 2⁵ | 2⁴ | 2³ | 2² | 2¹ | 2⁰
 
 -}
@@ -228,15 +228,15 @@ unsignedInt53 e =
               |        mantissa
     sign      |               |
        |      |               |
-       |  ____|____  _________|_________
-      / \/         \/                   \
+       |      |               |
+      / \/---------\/-------------------\
        *  * * * * *  * * * * * * * * * *  (16-bit)
 
     ------------------|-----------------------------------------
     e in [1..30]      | h = (-1)^s * 2 ^ (e - 15) * 1.mmmmmmmmmm
     e == 0 && m /= 0  | h = (-1)^s * 2 ^ -14 * 0.mmmmmmmmmm
-    e == 0 && m == 0  | h = 0.0
-    e == 31 && m == 0 | h = Infinity
+    e == 0 && m == 0  | h = +/- 0.0
+    e == 31 && m == 0 | h = +/- Infinity
     e == 31 && m /= 0 | h = NaN
 
 Note that since we are converting from half-precision to single precision,
@@ -262,7 +262,7 @@ float16 =
 
                     mantissa k =
                         List.sum
-                            [ 0.5 * (and 512 k |> shiftRightBy 9 |> toFloat)
+                            [ 0.5 * (shiftRightBy 9 k |> toFloat)
                             , 0.25 * (and 256 k |> shiftRightBy 8 |> toFloat)
                             , 0.125 * (and 128 k |> shiftRightBy 7 |> toFloat)
                             , 0.0625 * (and 64 k |> shiftRightBy 6 |> toFloat)
@@ -284,8 +284,8 @@ float16 =
                     0.0
 
                 else if e == 31 && m == 0 then
-                    -- isInfinite (1/0) == True
-                    1 / 0
+                    -- isInfinite (1/0) == True && isInfinite (-1/0) == True
+                    (-1 ^ s |> toFloat) / 0
 
                 else
                     -- isNaN (0/0) == True

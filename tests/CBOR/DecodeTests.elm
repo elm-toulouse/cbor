@@ -147,6 +147,8 @@ suite =
                 |> expect float (Just -4.1)
             , hex [ 0xF9, 0x7C, 0x00 ]
                 |> expect float (Just (1 / 0))
+            , hex [ 0xF9, 0xFC, 0x00 ]
+                |> expect float (Just (-1 / 0))
             , hex [ 0xFA, 0x7F, 0x80, 0x00, 0x00 ]
                 |> expect float (Just (1 / 0))
             ]
