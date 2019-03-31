@@ -2,6 +2,8 @@ module CBOR.Decode exposing
     ( Decoder(..), decodeBytes
     , bool, int, float, string, bytes
     , list, dict
+    , succeed, fail, andThen, map, map2, map3, map4, map5
+    , Tag(..), tag, tagged
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -24,6 +26,16 @@ MessagePack.
 ## Data Structures
 
 @docs list, dict
+
+
+## Mapping
+
+@docs succeed, fail, andThen, map, map2, map3, map4, map5
+
+
+## Tagging
+
+@docs Tag, tag, tagged
 
 -}
 
@@ -175,7 +187,197 @@ dict (Decoder key) (Decoder value) =
 
 
 {-------------------------------------------------------------------------------
-                                 Internal
+                                  Mapping
+-------------------------------------------------------------------------------}
+
+
+succeed : a -> Decoder a
+succeed =
+    Bytes.succeed >> Decoder
+
+
+fail : Decoder a
+fail =
+    Decoder Bytes.fail
+
+
+andThen : (a -> Decoder b) -> Decoder a -> Decoder b
+andThen fn (Decoder decoder) =
+    decoder
+        |> Bytes.andThen
+            (\a ->
+                let
+                    (Decoder b) =
+                        fn a
+                in
+                b
+            )
+        |> Decoder
+
+
+map : (a -> value) -> Decoder a -> Decoder value
+map fn (Decoder a) =
+    a |> Bytes.map fn |> Decoder
+
+
+map2 : (a -> b -> value) -> Decoder a -> Decoder b -> Decoder value
+map2 fn (Decoder a) (Decoder b) =
+    Bytes.map2 fn a b |> Decoder
+
+
+map3 :
+    (a -> b -> c -> value)
+    -> Decoder a
+    -> Decoder b
+    -> Decoder c
+    -> Decoder value
+map3 fn (Decoder a) (Decoder b) (Decoder c) =
+    Bytes.map3 fn a b c |> Decoder
+
+
+map4 :
+    (a -> b -> c -> d -> value)
+    -> Decoder a
+    -> Decoder b
+    -> Decoder c
+    -> Decoder d
+    -> Decoder value
+map4 fn (Decoder a) (Decoder b) (Decoder c) (Decoder d) =
+    Bytes.map4 fn a b c d |> Decoder
+
+
+map5 :
+    (a -> b -> c -> d -> e -> value)
+    -> Decoder a
+    -> Decoder b
+    -> Decoder c
+    -> Decoder d
+    -> Decoder e
+    -> Decoder value
+map5 fn (Decoder a) (Decoder b) (Decoder c) (Decoder d) (Decoder e) =
+    Bytes.map5 fn a b c d e |> Decoder
+
+
+
+{-------------------------------------------------------------------------------
+                                  Tagging
+-------------------------------------------------------------------------------}
+
+
+{-| Optional semantic tags as specified in the RFC 7049. Tags can be used to
+give an extra meaning to a generic piece of data that follows it. For instance,
+one could encode a bignum as a raw byte string and add a corresponding tag 0x02
+to indicates what meaning can be given to that bytestring.
+
+This implementation does little interpretation of the tags and is limited to
+only decoding the tag's value. The tag's payload has to be specified as any
+other decoder. So, using the previous example, one could decode a bignum as:
+
+    >>> decodeBytes (tag |> andThen (\t -> bytes)) input
+
+You may also use @tagged@ if you as a helper to decode a tagged value, while
+verifying that the tag matches what you expect.
+
+    >>> decodeBytes (tagged PositiveBigNum bytes) input
+
+-}
+type Tag
+    = StandardDateTime
+    | EpochDateTime
+    | PositiveBigNum
+    | NegativeBigNum
+    | DecimalFraction
+    | BigFloat
+    | Base64UrlConversion
+    | Base64Conversion
+    | Base16Conversion
+    | Cbor
+    | Uri
+    | Base64Url
+    | Base64
+    | Regex
+    | Mime
+    | IsCbor
+    | Unknown Int
+
+
+tag : Decoder Tag
+tag =
+    majorType 6
+        |> Bytes.andThen unsigned
+        |> Bytes.map
+            (\t ->
+                case t of
+                    0 ->
+                        StandardDateTime
+
+                    1 ->
+                        EpochDateTime
+
+                    2 ->
+                        PositiveBigNum
+
+                    3 ->
+                        NegativeBigNum
+
+                    4 ->
+                        DecimalFraction
+
+                    5 ->
+                        BigFloat
+
+                    21 ->
+                        Base64UrlConversion
+
+                    22 ->
+                        Base64Conversion
+
+                    23 ->
+                        Base16Conversion
+
+                    24 ->
+                        Cbor
+
+                    32 ->
+                        Uri
+
+                    33 ->
+                        Base64Url
+
+                    34 ->
+                        Base64
+
+                    35 ->
+                        Regex
+
+                    36 ->
+                        Mime
+
+                    55799 ->
+                        IsCbor
+
+                    _ ->
+                        Unknown t
+            )
+        |> Decoder
+
+
+tagged : Tag -> Decoder a -> Decoder ( Tag, a )
+tagged t a =
+    tag
+        |> andThen
+            (\t_ ->
+                if t == t_ then
+                    map2 Tuple.pair (succeed t) a
+
+                else
+                    fail
+            )
+
+
+
+{-------------------------------------------------------------------------------
+                                  Internal
 -------------------------------------------------------------------------------}
 
 

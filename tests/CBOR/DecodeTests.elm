@@ -11,6 +11,8 @@ import Bytes.Encode as Bytes
 import CBOR.Decode
     exposing
         ( Decoder
+        , Tag(..)
+        , andThen
         , bool
         , bytes
         , decodeBytes
@@ -18,7 +20,11 @@ import CBOR.Decode
         , float
         , int
         , list
+        , map2
         , string
+        , succeed
+        , tag
+        , tagged
         )
 import Dict
 import Expect
@@ -123,6 +129,22 @@ suite =
                     )
             , hex [ 0xA1 ]
                 |> expect (dict string int) Nothing
+            ]
+        , describe "Major type 6: tags"
+            [ hex
+                ([ 0xC0, 0x74, 0x32, 0x30, 0x31, 0x33, 0x2D, 0x30 ]
+                    ++ [ 0x33, 0x2D, 0x32, 0x31, 0x54, 0x32, 0x30 ]
+                    ++ [ 0x3A, 0x30, 0x34, 0x3A, 0x30, 0x30, 0x5A ]
+                )
+                |> expect
+                    (tagged StandardDateTime string)
+                    (Just ( StandardDateTime, "2013-03-21T20:04:00Z" ))
+            , hex [ 0xC1, 0x1A, 0x51, 0x4B, 0x67, 0xB0 ]
+                |> expect (tagged EpochDateTime int) (Just ( EpochDateTime, 1363896240 ))
+            , hex [ 0xD7, 0x44, 0x01, 0x02, 0x03, 0x04 ]
+                |> expect (tagged Base16Conversion bytes) (Just ( Base16Conversion, hex [ 0x01, 0x02, 0x03, 0x04 ] ))
+            , hex [ 0xD8, 0x18, 0x45, 0x64, 0x49, 0x45, 0x54, 0x46 ]
+                |> expect (tagged Cbor bytes) (Just ( Cbor, hex [ 0x64, 0x49, 0x45, 0x54, 0x46 ] ))
             ]
         , describe "Major type 7: floating-point numbers and simple data types"
             [ hex [ 0xF4 ]
