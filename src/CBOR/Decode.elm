@@ -1,7 +1,7 @@
 module CBOR.Decode exposing
-    ( Decoder(..), decodeBytes
+    ( Decoder, decodeBytes
     , bool, int, float, string, bytes
-    , list, dict
+    , list, dict, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
     , Tag(..), tag, tagged
     )
@@ -25,7 +25,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, dict
+@docs list, dict, maybe
 
 
 ## Mapping
@@ -54,7 +54,7 @@ import Tuple exposing (first)
 
 
 type Decoder a
-    = Decoder (Bytes.Decoder Int) (Int -> Bytes.Decoder a)
+    = Decoder MajorType (Int -> Bytes.Decoder a)
 
 
 decodeBytes : Decoder a -> Bytes -> Maybe a
@@ -70,7 +70,7 @@ decodeBytes d =
 
 bool : Decoder Bool
 bool =
-    Decoder (majorType 7) <|
+    Decoder (MajorType 7) <|
         \a ->
             if a == 20 then
                 Bytes.succeed False
@@ -89,8 +89,8 @@ int =
     -- sequence. Since Elm conflates representation of unsigned and negative
     -- integer into one 'int' type, we have to define an ad-hoc decoder for
     -- the major types here to handle both the Major type 0 and 1.
-    Decoder Bytes.unsignedInt8 <|
-        \a ->
+    Decoder MajorTypeInPayload
+        (\a ->
             if shiftRightBy 5 a == 0 then
                 unsigned a
 
@@ -99,11 +99,12 @@ int =
 
             else
                 Bytes.fail
+        )
 
 
 float : Decoder Float
 float =
-    Decoder (majorType 7) <|
+    Decoder (MajorType 7) <|
         \a ->
             if a == 25 then
                 float16
@@ -125,7 +126,7 @@ string =
             Bytes.unsignedInt8
                 |> Bytes.andThen
                     (\a ->
-                        if a == 0xFF then
+                        if a == tBREAK then
                             es
                                 |> List.reverse
                                 |> String.concat
@@ -133,15 +134,15 @@ string =
                                 |> Bytes.succeed
 
                         else
-                            majorTypeRaw 3 a
+                            majorType 3 a
                                 |> Bytes.andThen unsigned
                                 |> Bytes.andThen Bytes.string
                                 |> Bytes.map (\e -> Bytes.Loop (e :: es))
                     )
     in
-    Decoder (majorType 3) <|
+    Decoder (MajorType 3) <|
         \a ->
-            if a == 31 then
+            if a == tBEGIN then
                 Bytes.loop [] indef
 
             else
@@ -155,7 +156,7 @@ bytes =
             Bytes.unsignedInt8
                 |> Bytes.andThen
                     (\a ->
-                        if a == 0xFF then
+                        if a == tBREAK then
                             es
                                 |> List.reverse
                                 |> List.map Bytes.Encode.bytes
@@ -165,15 +166,15 @@ bytes =
                                 |> Bytes.succeed
 
                         else
-                            majorTypeRaw 2 a
+                            majorType 2 a
                                 |> Bytes.andThen unsigned
                                 |> Bytes.andThen Bytes.bytes
                                 |> Bytes.map (\e -> Bytes.Loop (e :: es))
                     )
     in
-    Decoder (majorType 2) <|
+    Decoder (MajorType 2) <|
         \a ->
-            if a == 31 then
+            if a == tBEGIN then
                 Bytes.loop [] indef
 
             else
@@ -187,7 +188,7 @@ bytes =
 
 
 list : Decoder a -> Decoder (List a)
-list ((Decoder _ elemPayload) as elem) =
+list ((Decoder major payload) as elem) =
     let
         finite ( n, es ) =
             if n <= 0 then
@@ -200,22 +201,17 @@ list ((Decoder _ elemPayload) as elem) =
             Bytes.unsignedInt8
                 |> Bytes.andThen
                     (\a ->
-                        if a == 0xFF then
+                        if a == tBREAK then
                             es |> List.reverse |> Bytes.Done |> Bytes.succeed
 
                         else
-                            -- TODO Be more strict on the elem payload validation
-                            -- Ideally, we would verify that the major type
-                            -- matches whatever was expected from the original
-                            -- decoder. This could be done via defining the
-                            -- major type as '(Int -> Bytes.Decoder a)' in the
-                            -- 'Decoder'
-                            elemPayload (and a 31) |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                            continueDecoder a elem
+                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
                     )
     in
-    Decoder (majorType 4) <|
+    Decoder (MajorType 4) <|
         \a ->
-            if a == 31 then
+            if a == tBEGIN then
                 Bytes.loop [] indef
 
             else
@@ -223,7 +219,7 @@ list ((Decoder _ elemPayload) as elem) =
 
 
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
-dict ((Decoder _ keyPayload) as key) value =
+dict key value =
     let
         finite ( n, es ) =
             if n <= 0 then
@@ -237,27 +233,45 @@ dict ((Decoder _ keyPayload) as key) value =
             Bytes.unsignedInt8
                 |> Bytes.andThen
                     (\a ->
-                        if a == 0xFF then
+                        if a == tBREAK then
                             es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
 
                         else
-                            -- TODO Be more strict on the key payload validation
-                            -- Ideally, we would verify that the major type
-                            -- matches whatever was expected from the original
-                            -- decoder. This could be done via defining the
-                            -- major type as '(Int -> Bytes.Decoder a)' in the
-                            -- 'Decoder'
-                            Bytes.map2 Tuple.pair (keyPayload (and a 31)) (runDecoder value)
+                            Bytes.map2 Tuple.pair (continueDecoder a key) (runDecoder value)
                                 |> Bytes.map (\e -> Bytes.Loop (e :: es))
                     )
     in
-    Decoder (majorType 5) <|
+    Decoder (MajorType 5) <|
         \a ->
-            if a == 31 then
+            if a == tBEGIN then
                 Bytes.loop [] indef
 
             else
                 unsigned a |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) finite)
+
+
+maybe : Decoder a -> Decoder (Maybe a)
+maybe ((Decoder major payload) as decoder) =
+    let
+        runMaybe a =
+            if a == 0xF6 then
+                Bytes.succeed Nothing
+
+            else
+                Bytes.map Just (continueDecoder a decoder)
+    in
+    Decoder MajorTypePlaceholder <|
+        \x ->
+            case major of
+                MajorTypePlaceholder ->
+                    Bytes.map Just (payload x)
+
+                _ ->
+                    if x == tPLACEHOLDER then
+                        Bytes.unsignedInt8 |> Bytes.andThen runMaybe
+
+                    else
+                        runMaybe x
 
 
 
@@ -268,32 +282,30 @@ dict ((Decoder _ keyPayload) as key) value =
 
 succeed : a -> Decoder a
 succeed a =
-    -- "major type" here can be anything BUT 31 (marker for indefinite structs)
-    -- We currently use 30 because it's unassigned.
-    Decoder (Bytes.succeed 0) (\_ -> Bytes.succeed a)
+    Decoder MajorTypePlaceholder (\_ -> Bytes.succeed a)
 
 
 fail : Decoder a
 fail =
-    Decoder Bytes.fail (\_ -> Bytes.fail)
+    Decoder MajorTypePlaceholder (\_ -> Bytes.fail)
 
 
 andThen : (a -> Decoder b) -> Decoder a -> Decoder b
 andThen fn a =
-    Decoder (Bytes.succeed 0) (\_ -> runDecoder a |> Bytes.andThen (fn >> runDecoder))
+    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> Bytes.andThen (fn >> runDecoder))
 
 
 map : (a -> value) -> Decoder a -> Decoder value
 map fn a =
-    Decoder (Bytes.succeed 0) (\_ -> runDecoder a |> Bytes.map fn)
+    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> Bytes.map fn)
 
 
 map2 : (a -> b -> value) -> Decoder a -> Decoder b -> Decoder value
 map2 fn a b =
-    Decoder (Bytes.succeed 0) <|
-        \_ ->
+    Decoder MajorTypePlaceholder <|
+        \x ->
             Bytes.map2 fn
-                (runDecoder a)
+                (runOrContinue x a)
                 (runDecoder b)
 
 
@@ -304,10 +316,10 @@ map3 :
     -> Decoder c
     -> Decoder value
 map3 fn a b c =
-    Decoder (Bytes.succeed 0) <|
-        \_ ->
+    Decoder MajorTypePlaceholder <|
+        \x ->
             Bytes.map3 fn
-                (runDecoder a)
+                (runOrContinue x a)
                 (runDecoder b)
                 (runDecoder c)
 
@@ -320,10 +332,10 @@ map4 :
     -> Decoder d
     -> Decoder value
 map4 fn a b c d =
-    Decoder (Bytes.succeed 0) <|
-        \_ ->
+    Decoder MajorTypePlaceholder <|
+        \x ->
             Bytes.map4 fn
-                (runDecoder a)
+                (runOrContinue x a)
                 (runDecoder b)
                 (runDecoder c)
                 (runDecoder d)
@@ -338,10 +350,10 @@ map5 :
     -> Decoder e
     -> Decoder value
 map5 fn a b c d e =
-    Decoder (Bytes.succeed 0) <|
-        \_ ->
+    Decoder MajorTypePlaceholder <|
+        \x ->
             Bytes.map5 fn
-                (runDecoder a)
+                (runOrContinue x a)
                 (runDecoder b)
                 (runDecoder c)
                 (runDecoder d)
@@ -393,7 +405,7 @@ type Tag
 
 tag : Decoder Tag
 tag =
-    Decoder (majorType 6) <|
+    Decoder (MajorType 6) <|
         unsigned
             >> Bytes.map
                 (\t ->
@@ -470,6 +482,29 @@ tagged t a =
 -------------------------------------------------------------------------------}
 
 
+{-| Marks the beginning of an indefinite structure
+-}
+tBEGIN : Int
+tBEGIN =
+    31
+
+
+{-| Marks the end of an indefinite structure
+-}
+tBREAK : Int
+tBREAK =
+    0xFF
+
+
+{-| Marks a top-level combinator which no major type. 30 is an unassigned value
+for major types (nor a special case like 31 = 'break'). So, we use it as a
+special marker to indicate that a special decoder is in a top-level position.
+-}
+tPLACEHOLDER : Int
+tPLACEHOLDER =
+    30
+
+
 {-| Run a decoder in sequence, getting first the major type, and then the
 payload. Note that, separating the definition of the payload and the major type
 allows us to implement various things like indefinite list or maybes, where, we
@@ -479,7 +514,48 @@ announcing what they are!
 -}
 runDecoder : Decoder a -> Bytes.Decoder a
 runDecoder (Decoder major payload) =
-    major |> Bytes.andThen payload
+    case major of
+        MajorTypePlaceholder ->
+            payload tPLACEHOLDER
+
+        MajorTypeInPayload ->
+            Bytes.unsignedInt8 |> Bytes.andThen payload
+
+        MajorType m ->
+            Bytes.unsignedInt8 |> Bytes.andThen (majorType m) |> Bytes.andThen payload
+
+
+{-| Continue a decoder with the given 'Int' token parsed outside of the decoder.
+This happens for indefinite data-structure where we have to first peak at the
+next token before knowing which parser hsa to be ran (if any).
+-}
+continueDecoder : Int -> Decoder a -> Bytes.Decoder a
+continueDecoder a (Decoder major payload) =
+    case major of
+        MajorTypePlaceholder ->
+            payload a
+
+        MajorTypeInPayload ->
+            payload a
+
+        MajorType m ->
+            majorType m a |> Bytes.andThen payload
+
+
+{-| In some cases (like 'andThen' or 'map'), we don't have enough context to
+figure out whether we need to consume the next major type token or not. When a
+decoder has already been ran and has yield a value /= tPLACEHOLDER, we can just
+continue decoding with that particular token. Otherwise, we haven't yet consumed
+a token for the major type and we should simply run the actual decoder instead
+of continuing it.
+-}
+runOrContinue : Int -> Decoder a -> Bytes.Decoder a
+runOrContinue a d =
+    if a == tPLACEHOLDER then
+        runDecoder d
+
+    else
+        continueDecoder a d
 
 
 {-| Decode a major type and return the additional data if it matches. Major
@@ -493,22 +569,21 @@ additional value depends on the major type itself.
                      2⁷ | 2⁶ | 2⁵ | 2⁴ | 2³ | 2² | 2¹ | 2⁰
 
 -}
-majorType : Int -> Bytes.Decoder Int
-majorType k =
-    Bytes.unsignedInt8 |> Bytes.andThen (majorTypeRaw k)
-
-
-{-| Continue parsing major type with the given value 'a'. It give the caller the
-possiblity to do something
-with the raw value of 'a' before it gets normalized
--}
-majorTypeRaw : Int -> Int -> Bytes.Decoder Int
-majorTypeRaw k a =
+majorType : Int -> Int -> Bytes.Decoder Int
+majorType k a =
     if shiftRightBy 5 a == k then
         Bytes.succeed (and a 31)
 
     else
         Bytes.fail
+
+
+{-| Internal representation of Major type
+-}
+type MajorType
+    = MajorType Int
+    | MajorTypeInPayload
+    | MajorTypePlaceholder
 
 
 {-| Int in Elm and JavaScript are safe in the range: -2^53 to 2^53 - 1, though,

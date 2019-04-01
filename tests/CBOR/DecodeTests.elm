@@ -17,10 +17,12 @@ import CBOR.Decode
         , bytes
         , decodeBytes
         , dict
+        , fail
         , float
         , int
         , list
-        , map2
+        , map
+        , maybe
         , string
         , succeed
         , tag
@@ -193,6 +195,52 @@ suite =
                 |> expect float (Just (-1 / 0))
             , hex [ 0xFA, 0x7F, 0x80, 0x00, 0x00 ]
                 |> expect float (Just (1 / 0))
+            ]
+        , describe "Extras"
+            [ hex [ 0xF6 ]
+                |> expect (maybe bool) (Just Nothing)
+            , hex [ 0xF4 ]
+                |> expect (maybe bool) (Just (Just False))
+            , hex []
+                |> expect (succeed 14) (Just 14)
+            , hex []
+                |> expect (maybe (succeed 14)) (Just (Just 14))
+            , hex [ 0x01 ]
+                |> expect (maybe <| maybe int) (Just (Just (Just 1)))
+            , hex [ 0x00 ]
+                |> expect (int |> map (\x -> x + 1)) (Just 1)
+            , hex []
+                |> expect (maybe (succeed 1 |> andThen (\n -> succeed (n + 1)))) (Just (Just 2))
+            , hex [ 0x84, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect fail Nothing
+            , hex [ 0x00, 0x00 ]
+                |> expect (int |> andThen (\_ -> fail) |> andThen succeed) Nothing
+            , hex [ 0x82, 0x00, 0x00 ]
+                |> expect (list (int |> map (\x -> x + 1))) (Just [ 1, 1 ])
+            , hex [ 0x83, 0x00, 0x00, 0x00 ]
+                |> expect (list (int |> andThen (\_ -> succeed 1))) (Just [ 1, 1, 1 ])
+            , hex [ 0x9F, 0x00, 0x00, 0x00, 0x00, 0xFF ]
+                |> expect (list (int |> andThen (\_ -> succeed 1))) (Just [ 1, 1, 1, 1 ])
+            , hex [ 0x9F, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF ]
+                |> expect (list (succeed 1)) (Just [ 1, 1, 1, 1, 1 ])
+            , hex [ 0x84, 0x01, 0x61, 0x61, 0x02, 0x61, 0x62 ]
+                |> expect (list int) Nothing
+            , hex [ 0x83, 0xF6, 0x01, 0x02 ]
+                |> expect (list <| maybe int) (Just [ Nothing, Just 1, Just 2 ])
+            , hex [ 0x01 ]
+                |> expect
+                    (maybe int
+                        |> andThen
+                            (\m ->
+                                case m of
+                                    Nothing ->
+                                        fail
+
+                                    Just x ->
+                                        succeed (x + 1)
+                            )
+                    )
+                    (Just 2)
             ]
         ]
 
