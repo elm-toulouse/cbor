@@ -1,4 +1,4 @@
-module CBOR.DecodeTests exposing (suite)
+module Cbor.DecodeTests exposing (suite)
 
 {-| Tests for the various decoding primitives available from the library.
 Test vectors are provided in Appendix A of the RFC 7049, as well as a couple of
@@ -8,7 +8,7 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Bytes
-import CBOR.Decode
+import Cbor.Decode
     exposing
         ( Decoder
         , Tag(..)

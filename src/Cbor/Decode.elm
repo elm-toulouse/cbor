@@ -1,4 +1,4 @@
-module CBOR.Decode exposing
+module Cbor.Decode exposing
     ( Decoder, decodeBytes
     , bool, int, float, string, bytes
     , list, dict, maybe

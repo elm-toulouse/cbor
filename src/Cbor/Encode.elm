@@ -1,4 +1,4 @@
-module CBOR.Encode exposing (encodeInt)
+module Cbor.Encode exposing (encodeInt)
 
 import Bitwise
 import Bytes exposing (Bytes, Endianness(..))
