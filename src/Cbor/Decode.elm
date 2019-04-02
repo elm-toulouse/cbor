@@ -1,7 +1,7 @@
 module Cbor.Decode exposing
     ( Decoder, decodeBytes
     , bool, int, float, string, bytes
-    , list, dict, maybe
+    , list, dict, pair, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
     , Tag(..), tag, tagged
     )
@@ -25,7 +25,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, dict, maybe
+@docs list, dict, pair, maybe
 
 
 ## Mapping
@@ -216,6 +216,20 @@ list ((Decoder major payload) as elem) =
 
             else
                 unsigned a |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) finite)
+
+
+pair : Decoder a -> Decoder b -> Decoder ( a, b )
+pair a b =
+    Decoder (MajorType 4) <|
+        unsigned
+            >> Bytes.andThen
+                (\n ->
+                    if n /= 2 then
+                        Bytes.fail
+
+                    else
+                        Bytes.map2 Tuple.pair (runDecoder a) (runDecoder b)
+                )
 
 
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
