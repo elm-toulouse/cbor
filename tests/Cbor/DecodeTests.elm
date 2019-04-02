@@ -22,6 +22,10 @@ import Cbor.Decode
         , int
         , list
         , map
+        , map2
+        , map3
+        , map4
+        , map5
         , maybe
         , pair
         , string
@@ -172,18 +176,26 @@ suite =
                 |> expect (tagged Base16Conversion bytes) (Just ( Base16Conversion, hex [ 0x01, 0x02, 0x03, 0x04 ] ))
             , hex [ 0xD8, 0x18, 0x45, 0x64, 0x49, 0x45, 0x54, 0x46 ]
                 |> expect (tagged Cbor bytes) (Just ( Cbor, hex [ 0x64, 0x49, 0x45, 0x54, 0x46 ] ))
+            , hex [ 0xC0, 0x00, 0x00 ]
+                |> expect (tagged Cbor string) Nothing
+            , hex [ 0xD8, 0x2A, 0x0E ]
+                |> expect tag (Just (Unknown 42))
             ]
         , describe "Major type 7: floating-point numbers and simple data types"
             [ hex [ 0xF4 ]
                 |> expect bool (Just False)
             , hex [ 0xF5 ]
                 |> expect bool (Just True)
+            , hex [ 0xFF ]
+                |> expect bool Nothing
             , hex [ 0xF9, 0x80, 0x00 ]
                 |> expect float (Just -0.0)
             , hex [ 0xF9, 0x3C, 0x00 ]
                 |> expect float (Just 1.0)
             , hex [ 0xF9, 0x55, 0x22 ]
                 |> expect float (Just 82.125)
+            , hex [ 0xF9, 0x03, 0xFF ]
+                |> expect float (Just 0.00006097554550170899)
             , hex [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
                 |> expect float (Just 1.1)
             , hex [ 0xF9, 0x3E, 0x00 ]
@@ -200,6 +212,10 @@ suite =
                 |> expect float (Just (-1 / 0))
             , hex [ 0xFA, 0x7F, 0x80, 0x00, 0x00 ]
                 |> expect float (Just (1 / 0))
+            , hex [ 0xF4, 0xFF ]
+                |> expect float Nothing
+            , hex [ 0xF9, 0xFF, 0xFF ]
+                |> expect (map isNaN float) (Just True)
             ]
         , describe "Extras"
             [ hex [ 0xF6 ]
@@ -218,6 +234,8 @@ suite =
                 |> expect (maybe (succeed 1 |> andThen (\n -> succeed (n + 1)))) (Just (Just 2))
             , hex [ 0x84, 0x00, 0x00, 0x00, 0x00 ]
                 |> expect fail Nothing
+            , hex [ 0xB0, 0x00, 0x00, 0x00 ]
+                |> expect string Nothing
             , hex [ 0x00, 0x00 ]
                 |> expect (int |> andThen (\_ -> fail) |> andThen succeed) Nothing
             , hex [ 0x82, 0x00, 0x00 ]
@@ -246,8 +264,32 @@ suite =
                             )
                     )
                     (Just 2)
+            , hex [ 0x01, 0x02 ]
+                |> expect (map2 Map2 int int) (Just <| Map2 1 2)
+            , hex [ 0x01, 0x02, 0x03 ]
+                |> expect (map3 Map3 int int int) (Just <| Map3 1 2 3)
+            , hex [ 0x01, 0x02, 0x03, 0x04 ]
+                |> expect (map4 Map4 int int int int) (Just <| Map4 1 2 3 4)
+            , hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ]
+                |> expect (map5 Map5 int int int int int) (Just <| Map5 1 2 3 4 5)
             ]
         ]
+
+
+type alias Map2 =
+    { a : Int, b : Int }
+
+
+type alias Map3 =
+    { a : Int, b : Int, c : Int }
+
+
+type alias Map4 =
+    { a : Int, b : Int, c : Int, d : Int }
+
+
+type alias Map5 =
+    { a : Int, b : Int, c : Int, d : Int, e : Int }
 
 
 {-| Alias / Shortcut to write test cases
