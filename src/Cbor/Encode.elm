@@ -1,6 +1,6 @@
 module Cbor.Encode exposing
     ( Encoder, encode
-    , int
+    , bool, int
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -60,6 +60,17 @@ encode (Encoder e) =
 {-------------------------------------------------------------------------------
                                  Primitives
 -------------------------------------------------------------------------------}
+
+
+bool : Bool -> Encoder
+bool n =
+    Encoder <|
+        case n of
+            False ->
+                Bytes.unsignedInt8 0xF4
+
+            True ->
+                Bytes.unsignedInt8 0xF5
 
 
 int : Int -> Encoder

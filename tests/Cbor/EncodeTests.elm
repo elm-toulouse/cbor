@@ -11,6 +11,7 @@ import Bytes.Encode as Bytes
 import Cbor.Encode
     exposing
         ( Encoder
+        , bool
         , encode
         , int
         )
@@ -43,6 +44,12 @@ suite =
                 |> expect [ 0x1B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
             , int 9007199254740991
                 |> expect [ 0x1B, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ]
+            ]
+        , describe "Major type 7: floating-point numbers and simple data types"
+            [ bool True
+                |> expect [ 0xF5 ]
+            , bool False
+                |> expect [ 0xF4 ]
             ]
         ]
 
