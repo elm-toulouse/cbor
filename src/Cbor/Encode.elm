@@ -1,36 +1,94 @@
-module Cbor.Encode exposing (encodeInt)
+module Cbor.Encode exposing
+    ( Encoder, encode
+    , int
+    )
 
-import Bitwise
+{-| The Concise Binary Object Representation (CBOR) is a data format whose design
+goals include the possibility of extremely small code size, fairly small message
+size, and extensibility without the need for version negotiation. These design
+goals make it different from earlier binary serializations such as ASN.1 and
+MessagePack.
+
+
+## Encoder
+
+@docs Encoder, encode
+
+
+## Primitives
+
+@docs bool, int, float, string, bytes
+
+
+## Data Structures
+
+@docs list, dict, pair, maybe
+
+
+## Mapping
+
+@docs succeed, fail, andThen, map, map2, map3, map4, map5
+
+
+## Tagging
+
+@docs Tag, tag, tagged
+
+-}
+
+import Bitwise exposing (shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Encode as Encode exposing (Encoder)
+import Bytes.Encode as Bytes
 
 
-encodeInt : Int -> Encoder
-encodeInt n =
-    if n < 0x18 then
-        Encode.unsignedInt8 n
 
-    else if n < 0x0100 then
-        Encode.sequence
-            [ Encode.unsignedInt8 24
-            , Encode.unsignedInt8 n
-            ]
+{------------------------------------------------------------------------------
+                                  Encoder
+------------------------------------------------------------------------------}
 
-    else if n < 0x00010000 then
-        Encode.sequence
-            [ Encode.unsignedInt8 25
-            , Encode.unsignedInt16 BE n
-            ]
 
-    else if n < 0x0000000100000000 then
-        Encode.sequence
-            [ Encode.unsignedInt8 26
-            , Encode.unsignedInt32 BE n
-            ]
+type Encoder
+    = Encoder Bytes.Encoder
 
-    else
-        Encode.sequence
-            [ Encode.unsignedInt8 27
-            , Encode.unsignedInt32 BE (n // 0x0000000100000000)
-            , Encode.unsignedInt32 BE (Bitwise.shiftRightBy 32 n)
-            ]
+
+encode : Encoder -> Bytes
+encode (Encoder e) =
+    Bytes.encode e
+
+
+
+{-------------------------------------------------------------------------------
+                                 Primitives
+-------------------------------------------------------------------------------}
+
+
+int : Int -> Encoder
+int n =
+    Encoder <|
+        if n < 0x18 then
+            Bytes.unsignedInt8 n
+
+        else if n < 0x0100 then
+            Bytes.sequence
+                [ Bytes.unsignedInt8 24
+                , Bytes.unsignedInt8 n
+                ]
+
+        else if n < 0x00010000 then
+            Bytes.sequence
+                [ Bytes.unsignedInt8 25
+                , Bytes.unsignedInt16 BE n
+                ]
+
+        else if n < 0x0000000100000000 then
+            Bytes.sequence
+                [ Bytes.unsignedInt8 26
+                , Bytes.unsignedInt32 BE n
+                ]
+
+        else
+            Bytes.sequence
+                [ Bytes.unsignedInt8 27
+                , Bytes.unsignedInt32 BE (n // 0x0000000100000000)
+                , Bytes.unsignedInt32 BE (shiftRightBy 32 n)
+                ]

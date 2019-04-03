@@ -40,7 +40,7 @@ import Test exposing (Test, describe, test)
 
 suite : Test
 suite =
-    describe "CBOR.Decode"
+    describe "Cbor.Decode"
         [ describe "Major Type 0: an unsigned integer"
             [ hex [ 0x00 ]
                 |> expect int (Just 0)
