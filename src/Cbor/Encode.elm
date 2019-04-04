@@ -36,7 +36,7 @@ MessagePack.
 
 -}
 
-import Bitwise exposing (shiftRightBy)
+import Bitwise exposing (or, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as Bytes
 
@@ -76,30 +76,53 @@ bool n =
 int : Int -> Encoder
 int n =
     Encoder <|
-        if n < 0x18 then
-            Bytes.unsignedInt8 n
+        if n == -9007199254740992 then
+            unsigned 1 9007199254740991
 
-        else if n < 0x0100 then
-            Bytes.sequence
-                [ Bytes.unsignedInt8 24
-                , Bytes.unsignedInt8 n
-                ]
-
-        else if n < 0x00010000 then
-            Bytes.sequence
-                [ Bytes.unsignedInt8 25
-                , Bytes.unsignedInt16 BE n
-                ]
-
-        else if n < 0x0000000100000000 then
-            Bytes.sequence
-                [ Bytes.unsignedInt8 26
-                , Bytes.unsignedInt32 BE n
-                ]
+        else if n < 0 then
+            unsigned 1 (negate n - 1)
 
         else
-            Bytes.sequence
-                [ Bytes.unsignedInt8 27
-                , Bytes.unsignedInt32 BE (n // 0x0000000100000000)
-                , Bytes.unsignedInt32 BE (shiftRightBy 32 n)
-                ]
+            unsigned 0 n
+
+
+
+{-------------------------------------------------------------------------------
+                                 Internals
+-------------------------------------------------------------------------------}
+
+
+majorType : Int -> Int -> Bytes.Encoder
+majorType major payload =
+    Bytes.unsignedInt8 <| or payload (shiftLeftBy 5 major)
+
+
+unsigned : Int -> Int -> Bytes.Encoder
+unsigned major n =
+    if n < 0x18 then
+        majorType major n
+
+    else if n < 0x0100 then
+        Bytes.sequence
+            [ majorType major 24
+            , Bytes.unsignedInt8 n
+            ]
+
+    else if n < 0x00010000 then
+        Bytes.sequence
+            [ majorType major 25
+            , Bytes.unsignedInt16 BE n
+            ]
+
+    else if n < 0x0000000100000000 then
+        Bytes.sequence
+            [ majorType major 26
+            , Bytes.unsignedInt32 BE n
+            ]
+
+    else
+        Bytes.sequence
+            [ majorType major 27
+            , Bytes.unsignedInt32 BE (n // 4294967296)
+            , Bytes.unsignedInt32 BE n
+            ]
