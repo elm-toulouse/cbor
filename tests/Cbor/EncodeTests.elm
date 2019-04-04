@@ -6,8 +6,8 @@ additions that are more elm-specific, obtained from an online tool <http://cbor.
 which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 -}
 
-import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Encode as Bytes
+import Bytes exposing (Bytes, width)
+import Bytes.Decode as Bytes
 import Cbor.Encode
     exposing
         ( Encoder
@@ -59,11 +59,22 @@ suite =
 expect : List Int -> Encoder -> Test
 expect output input =
     test (Debug.toString input ++ " -> " ++ Debug.toString output) <|
-        \_ -> encode input |> Expect.equal (hex output)
+        \_ -> hex (encode input) |> Expect.equal (Just output)
 
 
 {-| Convert a list of BE unsigned8 to bytes
 -}
-hex : List Int -> Bytes
-hex =
-    List.map Bytes.unsignedInt8 >> Bytes.sequence >> Bytes.encode
+hex : Bytes -> Maybe (List Int)
+hex bytes =
+    bytes
+        |> Bytes.decode
+            (Bytes.loop ( width bytes, [] )
+                (\( n, xs ) ->
+                    if n == 0 then
+                        xs |> List.reverse |> Bytes.Done |> Bytes.succeed
+
+                    else
+                        Bytes.unsignedInt8
+                            |> Bytes.map (\x -> Bytes.Loop ( n - 1, x :: xs ))
+                )
+            )
