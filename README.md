@@ -1,5 +1,7 @@
-# 🤖 elm-cbor(g) [![](https://img.shields.io/elm-package/v/elm-toulouse/elm-cbor.svg?style=for-the-badge)](https://package.elm-lang.org/packages/elm-toulouse/elm-cbor/latest/) 
-
+<p align="center">
+  <img src=".github/logo.png" /><br/>
+  <a href="https://package.elm-lang.org/packages/elm-toulouse/elm-cbor/latest/"><img src="https://img.shields.io/elm-package/v/elm-toulouse/elm-cbor.svg?style=for-the-badge"/></a>
+</p>
 
 [**RFC 7049**](https://tools.ietf.org/html/rfc7049)
 
