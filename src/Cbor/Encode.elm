@@ -45,8 +45,8 @@ MessagePack.
 import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
-import Bytes.Encode as Bytes
-import Bytes.Floating.Encode as Bytes
+import Bytes.Encode as E
+import Bytes.Floating.Encode as E
 
 
 
@@ -56,12 +56,12 @@ import Bytes.Floating.Encode as Bytes
 
 
 type Encoder
-    = Encoder Bytes.Encoder
+    = Encoder E.Encoder
 
 
 encode : Encoder -> Bytes
 encode (Encoder e) =
-    Bytes.encode e
+    E.encode e
 
 
 
@@ -77,10 +77,10 @@ bool n =
     Encoder <|
         case n of
             False ->
-                Bytes.unsignedInt8 0xF4
+                E.unsignedInt8 0xF4
 
             True ->
-                Bytes.unsignedInt8 0xF5
+                E.unsignedInt8 0xF5
 
 
 {-| Encode integers from `-9007199254740992` (`-2⁵³`) to `9007199254740991` (`2⁵³ - 1`)
@@ -119,9 +119,9 @@ float =
 float16 : Float -> Encoder
 float16 n =
     Encoder <|
-        Bytes.sequence
+        E.sequence
             [ majorType 7 25
-            , Bytes.float16 BE n
+            , E.float16 BE n
             ]
 
 
@@ -130,9 +130,9 @@ float16 n =
 float32 : Float -> Encoder
 float32 n =
     Encoder <|
-        Bytes.sequence
+        E.sequence
             [ majorType 7 26
-            , Bytes.float32 BE n
+            , E.float32 BE n
             ]
 
 
@@ -141,9 +141,9 @@ float32 n =
 float64 : Float -> Encoder
 float64 n =
     Encoder <|
-        Bytes.sequence
+        E.sequence
             [ majorType 7 27
-            , Bytes.float64 BE n
+            , E.float64 BE n
             ]
 
 
@@ -164,9 +164,9 @@ on the major type itself.
                  2⁷ | 2⁶ | 2⁵ | 2⁴ | 2³ | 2² | 2¹ | 2⁰
 
 -}
-majorType : Int -> Int -> Bytes.Encoder
+majorType : Int -> Int -> E.Encoder
 majorType major payload =
-    Bytes.unsignedInt8 <| or payload (shiftLeftBy 5 major)
+    E.unsignedInt8 <| or payload (shiftLeftBy 5 major)
 
 
 {-| Encode an unsigned int using the given major type and payload.
@@ -188,32 +188,32 @@ artificially _emulate_ this by splitting the number in two, encoding both part
 on 32-bit.
 
 -}
-unsigned : Int -> Int -> Bytes.Encoder
+unsigned : Int -> Int -> E.Encoder
 unsigned major n =
     if n < 24 then
         majorType major n
 
     else if n < 256 then
-        Bytes.sequence
+        E.sequence
             [ majorType major 24
-            , Bytes.unsignedInt8 n
+            , E.unsignedInt8 n
             ]
 
     else if n < 65536 then
-        Bytes.sequence
+        E.sequence
             [ majorType major 25
-            , Bytes.unsignedInt16 BE n
+            , E.unsignedInt16 BE n
             ]
 
     else if n < 4294967296 then
-        Bytes.sequence
+        E.sequence
             [ majorType major 26
-            , Bytes.unsignedInt32 BE n
+            , E.unsignedInt32 BE n
             ]
 
     else
-        Bytes.sequence
+        E.sequence
             [ majorType major 27
-            , Bytes.unsignedInt32 BE (n // 4294967296)
-            , Bytes.unsignedInt32 BE n
+            , E.unsignedInt32 BE (n // 4294967296)
+            , E.unsignedInt32 BE n
             ]

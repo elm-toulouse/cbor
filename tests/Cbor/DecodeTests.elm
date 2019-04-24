@@ -7,7 +7,7 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 -}
 
 import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Encode as Bytes
+import Bytes.Encode as E
 import Cbor.Decode
     exposing
         ( Decoder
@@ -306,4 +306,4 @@ expect decoder output ( readable, input ) =
 -}
 hex : List Int -> ( List Int, Bytes )
 hex xs =
-    ( xs, xs |> List.map Bytes.unsignedInt8 >> Bytes.sequence >> Bytes.encode )
+    ( xs, xs |> List.map E.unsignedInt8 >> E.sequence >> E.encode )

@@ -41,9 +41,9 @@ MessagePack.
 
 import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Decode as Bytes
-import Bytes.Encode
-import Bytes.Floating.Decode as Bytes
+import Bytes.Decode as D
+import Bytes.Encode as E
+import Bytes.Floating.Decode as D
 import Dict exposing (Dict)
 import Tuple exposing (first)
 
@@ -55,12 +55,12 @@ import Tuple exposing (first)
 
 
 type Decoder a
-    = Decoder MajorType (Int -> Bytes.Decoder a)
+    = Decoder MajorType (Int -> D.Decoder a)
 
 
 decodeBytes : Decoder a -> Bytes -> Maybe a
 decodeBytes d =
-    Bytes.decode (runDecoder d)
+    D.decode (runDecoder d)
 
 
 
@@ -74,13 +74,13 @@ bool =
     Decoder (MajorType 7) <|
         \a ->
             if a == 20 then
-                Bytes.succeed False
+                D.succeed False
 
             else if a == 21 then
-                Bytes.succeed True
+                D.succeed True
 
             else
-                Bytes.fail
+                D.fail
 
 
 int : Decoder Int
@@ -96,10 +96,10 @@ int =
                 unsigned a
 
             else if shiftRightBy 5 a == 1 then
-                Bytes.map (\x -> negate x - 1) (unsigned (and a 31))
+                D.map (\x -> negate x - 1) (unsigned (and a 31))
 
             else
-                Bytes.fail
+                D.fail
         )
 
 
@@ -108,78 +108,78 @@ float =
     Decoder (MajorType 7) <|
         \a ->
             if a == 25 then
-                Bytes.float16 BE
+                D.float16 BE
 
             else if a == 26 then
-                Bytes.float32 BE
+                D.float32 BE
 
             else if a == 27 then
-                Bytes.float64 BE
+                D.float64 BE
 
             else
-                Bytes.fail
+                D.fail
 
 
 string : Decoder String
 string =
     let
         indef es =
-            Bytes.unsignedInt8
-                |> Bytes.andThen
+            D.unsignedInt8
+                |> D.andThen
                     (\a ->
                         if a == tBREAK then
                             es
                                 |> List.reverse
                                 |> String.concat
-                                |> Bytes.Done
-                                |> Bytes.succeed
+                                |> D.Done
+                                |> D.succeed
 
                         else
                             majorType 3 a
-                                |> Bytes.andThen unsigned
-                                |> Bytes.andThen Bytes.string
-                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                                |> D.andThen unsigned
+                                |> D.andThen D.string
+                                |> D.map (\e -> D.Loop (e :: es))
                     )
     in
     Decoder (MajorType 3) <|
         \a ->
             if a == tBEGIN then
-                Bytes.loop [] indef
+                D.loop [] indef
 
             else
-                unsigned a |> Bytes.andThen Bytes.string
+                unsigned a |> D.andThen D.string
 
 
 bytes : Decoder Bytes
 bytes =
     let
         indef es =
-            Bytes.unsignedInt8
-                |> Bytes.andThen
+            D.unsignedInt8
+                |> D.andThen
                     (\a ->
                         if a == tBREAK then
                             es
                                 |> List.reverse
-                                |> List.map Bytes.Encode.bytes
-                                |> Bytes.Encode.sequence
-                                |> Bytes.Encode.encode
-                                |> Bytes.Done
-                                |> Bytes.succeed
+                                |> List.map E.bytes
+                                |> E.sequence
+                                |> E.encode
+                                |> D.Done
+                                |> D.succeed
 
                         else
                             majorType 2 a
-                                |> Bytes.andThen unsigned
-                                |> Bytes.andThen Bytes.bytes
-                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                                |> D.andThen unsigned
+                                |> D.andThen D.bytes
+                                |> D.map (\e -> D.Loop (e :: es))
                     )
     in
     Decoder (MajorType 2) <|
         \a ->
             if a == tBEGIN then
-                Bytes.loop [] indef
+                D.loop [] indef
 
             else
-                unsigned a |> Bytes.andThen Bytes.bytes
+                unsigned a |> D.andThen D.bytes
 
 
 
@@ -193,43 +193,43 @@ list ((Decoder major payload) as elem) =
     let
         finite ( n, es ) =
             if n <= 0 then
-                es |> List.reverse |> Bytes.Done |> Bytes.succeed
+                es |> List.reverse |> D.Done |> D.succeed
 
             else
-                runDecoder elem |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+                runDecoder elem |> D.map (\e -> D.Loop ( n - 1, e :: es ))
 
         indef es =
-            Bytes.unsignedInt8
-                |> Bytes.andThen
+            D.unsignedInt8
+                |> D.andThen
                     (\a ->
                         if a == tBREAK then
-                            es |> List.reverse |> Bytes.Done |> Bytes.succeed
+                            es |> List.reverse |> D.Done |> D.succeed
 
                         else
                             continueDecoder a elem
-                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                                |> D.map (\e -> D.Loop (e :: es))
                     )
     in
     Decoder (MajorType 4) <|
         \a ->
             if a == tBEGIN then
-                Bytes.loop [] indef
+                D.loop [] indef
 
             else
-                unsigned a |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) finite)
+                unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
 pair : Decoder a -> Decoder b -> Decoder ( a, b )
 pair a b =
     Decoder (MajorType 4) <|
         unsigned
-            >> Bytes.andThen
+            >> D.andThen
                 (\n ->
                     if n /= 2 then
-                        Bytes.fail
+                        D.fail
 
                     else
-                        Bytes.map2 Tuple.pair (runDecoder a) (runDecoder b)
+                        D.map2 Tuple.pair (runDecoder a) (runDecoder b)
                 )
 
 
@@ -238,31 +238,31 @@ dict key value =
     let
         finite ( n, es ) =
             if n <= 0 then
-                es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
+                es |> List.reverse |> Dict.fromList |> D.Done |> D.succeed
 
             else
-                Bytes.map2 Tuple.pair (runDecoder key) (runDecoder value)
-                    |> Bytes.map (\e -> Bytes.Loop ( n - 1, e :: es ))
+                D.map2 Tuple.pair (runDecoder key) (runDecoder value)
+                    |> D.map (\e -> D.Loop ( n - 1, e :: es ))
 
         indef es =
-            Bytes.unsignedInt8
-                |> Bytes.andThen
+            D.unsignedInt8
+                |> D.andThen
                     (\a ->
                         if a == tBREAK then
-                            es |> List.reverse |> Dict.fromList |> Bytes.Done |> Bytes.succeed
+                            es |> List.reverse |> Dict.fromList |> D.Done |> D.succeed
 
                         else
-                            Bytes.map2 Tuple.pair (continueDecoder a key) (runDecoder value)
-                                |> Bytes.map (\e -> Bytes.Loop (e :: es))
+                            D.map2 Tuple.pair (continueDecoder a key) (runDecoder value)
+                                |> D.map (\e -> D.Loop (e :: es))
                     )
     in
     Decoder (MajorType 5) <|
         \a ->
             if a == tBEGIN then
-                Bytes.loop [] indef
+                D.loop [] indef
 
             else
-                unsigned a |> Bytes.andThen (\n -> Bytes.loop ( n, [] ) finite)
+                unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
 maybe : Decoder a -> Decoder (Maybe a)
@@ -270,20 +270,20 @@ maybe ((Decoder major payload) as decoder) =
     let
         runMaybe a =
             if a == 0xF6 then
-                Bytes.succeed Nothing
+                D.succeed Nothing
 
             else
-                Bytes.map Just (continueDecoder a decoder)
+                D.map Just (continueDecoder a decoder)
     in
     Decoder MajorTypePlaceholder <|
         \x ->
             case major of
                 MajorTypePlaceholder ->
-                    Bytes.map Just (payload x)
+                    D.map Just (payload x)
 
                 _ ->
                     if x == tPLACEHOLDER then
-                        Bytes.unsignedInt8 |> Bytes.andThen runMaybe
+                        D.unsignedInt8 |> D.andThen runMaybe
 
                     else
                         runMaybe x
@@ -297,29 +297,29 @@ maybe ((Decoder major payload) as decoder) =
 
 succeed : a -> Decoder a
 succeed a =
-    Decoder MajorTypePlaceholder (\_ -> Bytes.succeed a)
+    Decoder MajorTypePlaceholder (\_ -> D.succeed a)
 
 
 fail : Decoder a
 fail =
-    Decoder MajorTypePlaceholder (\_ -> Bytes.fail)
+    Decoder MajorTypePlaceholder (\_ -> D.fail)
 
 
 andThen : (a -> Decoder b) -> Decoder a -> Decoder b
 andThen fn a =
-    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> Bytes.andThen (fn >> runDecoder))
+    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.andThen (fn >> runDecoder))
 
 
 map : (a -> value) -> Decoder a -> Decoder value
 map fn a =
-    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> Bytes.map fn)
+    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.map fn)
 
 
 map2 : (a -> b -> value) -> Decoder a -> Decoder b -> Decoder value
 map2 fn a b =
     Decoder MajorTypePlaceholder <|
         \x ->
-            Bytes.map2 fn
+            D.map2 fn
                 (runOrContinue x a)
                 (runDecoder b)
 
@@ -333,7 +333,7 @@ map3 :
 map3 fn a b c =
     Decoder MajorTypePlaceholder <|
         \x ->
-            Bytes.map3 fn
+            D.map3 fn
                 (runOrContinue x a)
                 (runDecoder b)
                 (runDecoder c)
@@ -349,7 +349,7 @@ map4 :
 map4 fn a b c d =
     Decoder MajorTypePlaceholder <|
         \x ->
-            Bytes.map4 fn
+            D.map4 fn
                 (runOrContinue x a)
                 (runDecoder b)
                 (runDecoder c)
@@ -367,7 +367,7 @@ map5 :
 map5 fn a b c d e =
     Decoder MajorTypePlaceholder <|
         \x ->
-            Bytes.map5 fn
+            D.map5 fn
                 (runOrContinue x a)
                 (runDecoder b)
                 (runDecoder c)
@@ -422,7 +422,7 @@ tag : Decoder Tag
 tag =
     Decoder (MajorType 6) <|
         unsigned
-            >> Bytes.map
+            >> D.map
                 (\t ->
                     case t of
                         0 ->
@@ -527,24 +527,24 @@ can start to peak at the next byte and take action depending on its value.
 This is only possible because all items are prefixed with a major type
 announcing what they are!
 -}
-runDecoder : Decoder a -> Bytes.Decoder a
+runDecoder : Decoder a -> D.Decoder a
 runDecoder (Decoder major payload) =
     case major of
         MajorTypePlaceholder ->
             payload tPLACEHOLDER
 
         MajorTypeInPayload ->
-            Bytes.unsignedInt8 |> Bytes.andThen payload
+            D.unsignedInt8 |> D.andThen payload
 
         MajorType m ->
-            Bytes.unsignedInt8 |> Bytes.andThen (majorType m) |> Bytes.andThen payload
+            D.unsignedInt8 |> D.andThen (majorType m) |> D.andThen payload
 
 
 {-| Continue a decoder with the given 'Int' token parsed outside of the decoder.
 This happens for indefinite data-structure where we have to first peak at the
 next token before knowing which parser hsa to be ran (if any).
 -}
-continueDecoder : Int -> Decoder a -> Bytes.Decoder a
+continueDecoder : Int -> Decoder a -> D.Decoder a
 continueDecoder a (Decoder major payload) =
     case major of
         MajorTypePlaceholder ->
@@ -554,7 +554,7 @@ continueDecoder a (Decoder major payload) =
             payload a
 
         MajorType m ->
-            majorType m a |> Bytes.andThen payload
+            majorType m a |> D.andThen payload
 
 
 {-| In some cases (like 'andThen' or 'map'), we don't have enough context to
@@ -564,7 +564,7 @@ continue decoding with that particular token. Otherwise, we haven't yet consumed
 a token for the major type and we should simply run the actual decoder instead
 of continuing it.
 -}
-runOrContinue : Int -> Decoder a -> Bytes.Decoder a
+runOrContinue : Int -> Decoder a -> D.Decoder a
 runOrContinue a d =
     if a == tPLACEHOLDER then
         runDecoder d
@@ -584,13 +584,13 @@ additional value depends on the major type itself.
                      2⁷ | 2⁶ | 2⁵ | 2⁴ | 2³ | 2² | 2¹ | 2⁰
 
 -}
-majorType : Int -> Int -> Bytes.Decoder Int
+majorType : Int -> Int -> D.Decoder Int
 majorType k a =
     if shiftRightBy 5 a == k then
-        Bytes.succeed (and a 31)
+        D.succeed (and a 31)
 
     else
-        Bytes.fail
+        D.fail
 
 
 {-| Internal representation of Major type
@@ -607,16 +607,16 @@ bytes decoder for unsignedInt64 as we would need, and we've defined a custom one
 herebelow that makes sure that int are decoded in an acceptable range for elm.
 The parser will fail for values >= 2^53
 -}
-unsignedInt53 : Endianness -> Bytes.Decoder Int
+unsignedInt53 : Endianness -> D.Decoder Int
 unsignedInt53 e =
-    Bytes.unsignedInt32 e
-        |> Bytes.andThen
+    D.unsignedInt32 e
+        |> D.andThen
             (\up ->
                 if up > 0x001FFFFF then
-                    Bytes.fail
+                    D.fail
 
                 else
-                    Bytes.succeed (up * 0x0000000100000000)
+                    D.succeed (up * 0x0000000100000000)
             )
 
 
@@ -627,22 +627,22 @@ the length of additional data. Additional information 24 means the value is
 represented in an additional uint8\_t, 25 means a uint16\_t, 26 means a uint32\_t,
 and 27 means a uint64\_t.
 -}
-unsigned : Int -> Bytes.Decoder Int
+unsigned : Int -> D.Decoder Int
 unsigned a =
     if a < 24 then
-        Bytes.succeed a
+        D.succeed a
 
     else if a == 24 then
-        Bytes.unsignedInt8
+        D.unsignedInt8
 
     else if a == 25 then
-        Bytes.unsignedInt16 BE
+        D.unsignedInt16 BE
 
     else if a == 26 then
-        Bytes.unsignedInt32 BE
+        D.unsignedInt32 BE
 
     else if a == 27 then
-        Bytes.map2 (+) (unsignedInt53 BE) (Bytes.unsignedInt32 BE)
+        D.map2 (+) (unsignedInt53 BE) (D.unsignedInt32 BE)
 
     else
-        Bytes.fail
+        D.fail
