@@ -1,7 +1,8 @@
 module Cbor.Encode exposing
-    ( Encoder, encode
-    , bool, int, float
+    ( Encoder, encode, sequence
+    , bool, int, float, string
     , float16, float32, float64
+    , beginStrings, break
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -13,7 +14,7 @@ MessagePack.
 
 ## Encoder
 
-@docs Encoder, encode
+@docs Encoder, encode, sequence
 
 
 ## Primitives
@@ -29,6 +30,11 @@ MessagePack.
 ## Data Structures
 
 @docs list, dict, pair, maybe
+
+
+## Indefinite Data Structures
+
+@docs beginStrings, break
 
 
 ## Mapping
@@ -55,13 +61,58 @@ import Bytes.Floating.Encode as E
 ------------------------------------------------------------------------------}
 
 
+{-| Describes how to encode a data structure or a type into binary CBOR
+-}
 type Encoder
     = Encoder E.Encoder
 
 
+{-| Turn a CBOR 'Encoder' into 'Bytes'.
+
+    import Cbor.Encode as E
+    import Url exposing (Url)
+
+    type alias Album =
+        { artist : String
+        , title : String
+        , year : Int
+        , tracks : List ( String, Duration )
+        , links : List Url
+        }
+
+    type Duration
+        = Duration Int
+
+
+    -- ENCODER
+    encodeAlbum : Album -> E.Encoder
+    encodeAlbum { artist, title, year, tracks, links } =
+        let
+            link =
+                Url.toString >> E.string
+
+            track =
+                E.pair E.string (\(Duration d) -> E.int d)
+        in
+        E.sequence
+            [ E.string artist
+            , E.string title
+            , E.int year
+            , E.list track tracks
+            , E.list link links
+            ]
+
+-}
 encode : Encoder -> Bytes
 encode (Encoder e) =
     E.encode e
+
+
+{-| Combine a bunch of encoders
+-}
+sequence : List Encoder -> Encoder
+sequence =
+    List.map (\(Encoder e) -> e) >> E.sequence >> Encoder
 
 
 
@@ -108,6 +159,17 @@ float =
     float64
 
 
+{-| Encode a 'String' of fixed sized
+-}
+string : String -> Encoder
+string str =
+    Encoder <|
+        E.sequence
+            [ unsigned 3 (E.getStringWidth str)
+            , E.string str
+            ]
+
+
 
 {-------------------------------------------------------------------------------
                               Fancier Primitives
@@ -147,10 +209,49 @@ float64 n =
             ]
 
 
+{-| Encode a 'String' of indefinite length. This specified the beginning of
+multiple calls to 'string', followed by a 'break' to signal the end of the
+stream. For example:
+
+    E.sequence
+        [ E.beginStrings
+        , E.string "elm"
+        , E.string "rocks"
+        , E.string "!"
+        , E.break
+        ]
+
+-}
+beginStrings : Encoder
+beginStrings =
+    Encoder <| majorType 3 tBEGIN
+
+
+{-| Encode termination of an indefinite structure.
+-}
+break : Encoder
+break =
+    Encoder <| E.unsignedInt8 0xFF
+
+
 
 {-------------------------------------------------------------------------------
                                  Internals
 -------------------------------------------------------------------------------}
+
+
+{-| Marks the beginning of an indefinite structure
+-}
+tBEGIN : Int
+tBEGIN =
+    31
+
+
+{-| Marks the end of an indefinite structure
+-}
+tBREAK : Int
+tBREAK =
+    0xFF
 
 
 {-| Encode a major type and its additional payload. Major types are encoded

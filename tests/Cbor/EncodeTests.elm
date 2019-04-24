@@ -11,13 +11,17 @@ import Bytes.Decode as D
 import Cbor.Encode
     exposing
         ( Encoder
+        , beginStrings
         , bool
+        , break
         , encode
         , float
         , float16
         , float32
         , float64
         , int
+        , sequence
+        , string
         )
 import Dict
 import Expect
@@ -67,7 +71,30 @@ suite =
             , int -9007199254740992
                 |> expect [ 0x3B, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ]
             ]
-        , describe "Major type 7: floating-point numbers and simple data types"
+        , describe "Major Type 3: a text string"
+            [ string ""
+                |> expect [ 0x60 ]
+            , string "a"
+                |> expect [ 0x61, 0x61 ]
+            , string "IETF"
+                |> expect [ 0x64, 0x49, 0x45, 0x54, 0x46 ]
+            , string "\"\\"
+                |> expect [ 0x62, 0x22, 0x5C ]
+            , string "ü"
+                |> expect [ 0x62, 0xC3, 0xBC ]
+            , string "水"
+                |> expect [ 0x63, 0xE6, 0xB0, 0xB4 ]
+            , string "🌈"
+                |> expect [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
+            , sequence [ beginStrings, string "strea", string "ming", break ]
+                |> expect
+                    ([ 0x7F, 0x65, 0x73, 0x74, 0x72, 0x65, 0x61 ]
+                        ++ [ 0x64, 0x6D, 0x69, 0x6E, 0x67, 0xFF ]
+                    )
+            , sequence [ beginStrings, string "a", string "b", break ]
+                |> expect [ 0x7F, 0x61, 0x61, 0x61, 0x62, 0xFF ]
+            ]
+        , describe "Major Type 7: floating-point numbers and simple data types"
             [ bool True
                 |> expect [ 0xF5 ]
             , bool False
