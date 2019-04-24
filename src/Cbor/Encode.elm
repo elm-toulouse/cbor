@@ -46,6 +46,7 @@ import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as Bytes
+import Bytes.Floating.Encode as Bytes
 
 
 
@@ -116,8 +117,12 @@ float =
 {-| Encode floating numbers with half-precision (16-bit)
 -}
 float16 : Float -> Encoder
-float16 _ =
-    Debug.todo "float16"
+float16 n =
+    Encoder <|
+        Bytes.sequence
+            [ majorType 7 25
+            , Bytes.float16 BE n
+            ]
 
 
 {-| Encode floating numbers with simple precision (32-bit)

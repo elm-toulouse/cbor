@@ -43,6 +43,7 @@ import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as Bytes
 import Bytes.Encode
+import Bytes.Floating.Decode as Bytes
 import Dict exposing (Dict)
 import Tuple exposing (first)
 
@@ -107,7 +108,7 @@ float =
     Decoder (MajorType 7) <|
         \a ->
             if a == 25 then
-                float16
+                Bytes.float16 BE
 
             else if a == 26 then
                 Bytes.float32 BE
@@ -616,77 +617,6 @@ unsignedInt53 e =
 
                 else
                     Bytes.succeed (up * 0x0000000100000000)
-            )
-
-
-{-| Decoder of IEEE 754 Half-Precision Float (16-bit)
-
-       exponent
-              |        mantissa
-    sign      |               |
-       |      |               |
-       |      |               |
-      / \/---------\/-------------------\
-       *  * * * * *  * * * * * * * * * *  (16-bit)
-
-    ------------------|-----------------------------------------
-    e in [1..30]      | h = (-1)^s * 2 ^ (e - 15) * 1.mmmmmmmmmm
-    e == 0 && m /= 0  | h = (-1)^s * 2 ^ -14 * 0.mmmmmmmmmm
-    e == 0 && m == 0  | h = +/- 0.0
-    e == 31 && m == 0 | h = +/- Infinity
-    e == 31 && m /= 0 | h = NaN
-
-Note that since we are converting from half-precision to single precision,
-there a gain in precision and some numbers may end up with more decimals in
-their float 32-bit representation (for instance: 65504.0 as 0xF97BFF, ends up
-as 65503.996723200005)
-
--}
-float16 : Bytes.Decoder Float
-float16 =
-    Bytes.unsignedInt16 BE
-        |> Bytes.map
-            (\n ->
-                let
-                    s =
-                        shiftRightBy 15 n
-
-                    e =
-                        and 31 (shiftRightBy 10 n)
-
-                    m =
-                        and 1023 n
-
-                    mantissa k =
-                        List.sum
-                            [ 0.5 * (shiftRightBy 9 k |> toFloat)
-                            , 0.25 * (and 256 k |> shiftRightBy 8 |> toFloat)
-                            , 0.125 * (and 128 k |> shiftRightBy 7 |> toFloat)
-                            , 0.0625 * (and 64 k |> shiftRightBy 6 |> toFloat)
-                            , 0.03125 * (and 32 k |> shiftRightBy 5 |> toFloat)
-                            , 0.015625 * (and 16 k |> shiftRightBy 4 |> toFloat)
-                            , 0.0078125 * (and 8 k |> shiftRightBy 3 |> toFloat)
-                            , 0.00390625 * (and 4 k |> shiftRightBy 2 |> toFloat)
-                            , 0.001953125 * (and 2 k |> shiftRightBy 1 |> toFloat)
-                            , 0.0009764625 * (and 1 k |> toFloat)
-                            ]
-                in
-                if e >= 1 && e <= 30 then
-                    (-1 ^ s |> toFloat) * (2 ^ (e - 15) |> toFloat) * (1.0 + mantissa m)
-
-                else if e == 0 && m /= 0 then
-                    (-1 ^ s |> toFloat) * (2 ^ -14 |> toFloat) * mantissa m
-
-                else if e == 0 && m == 0 then
-                    0.0
-
-                else if e == 31 && m == 0 then
-                    -- isInfinite (1/0) == True && isInfinite (-1/0) == True
-                    (-1 ^ s |> toFloat) / 0
-
-                else
-                    -- isNaN (0/0) == True
-                    0 / 0
             )
 
 

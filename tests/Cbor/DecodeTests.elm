@@ -194,8 +194,10 @@ suite =
                 |> expect float (Just 1.0)
             , hex [ 0xF9, 0x55, 0x22 ]
                 |> expect float (Just 82.125)
-            , hex [ 0xF9, 0x03, 0xFF ]
-                |> expect float (Just 0.00006097554550170899)
+            , hex [ 0xF9, 0x04, 0x00 ]
+                |> expect float (Just 0.00006103515625)
+            , hex [ 0xF9, 0x00, 0x01 ]
+                |> expect float (Just 5.960464477539063e-8)
             , hex [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
                 |> expect float (Just 1.1)
             , hex [ 0xF9, 0x3E, 0x00 ]
