@@ -6,5 +6,7 @@
 elm-stuff
 # elm-repl generated files
 repl-temp-*
+# elm-coverage
+.coverage
 
 # End of https://www.gitignore.io/api/elm
