@@ -83,13 +83,13 @@ suite =
             ]
         , describe "Major Type 2: a byte string"
             [ hex [ 0x40 ]
-                |> expect bytes (Just <| hex [])
+                |> expect bytes (Just << Tuple.second <| hex [])
             , hex [ 0x41, 0x14 ]
-                |> expect bytes (Just <| hex [ 0x14 ])
+                |> expect bytes (Just << Tuple.second <| hex [ 0x14 ])
             , hex [ 0x43, 0x14, 0x42, 0xFF ]
-                |> expect bytes (Just <| hex [ 0x14, 0x42, 0xFF ])
+                |> expect bytes (Just << Tuple.second <| hex [ 0x14, 0x42, 0xFF ])
             , hex [ 0x5F, 0x42, 0x01, 0x02, 0x43, 0x03, 0x04, 0x05, 0xFF ]
-                |> expect bytes (Just <| hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ])
+                |> expect bytes (Just << Tuple.second <| hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ])
             ]
         , describe "Major Type 3: a text string"
             [ hex [ 0x60 ]
@@ -173,9 +173,9 @@ suite =
             , hex [ 0xC1, 0x1A, 0x51, 0x4B, 0x67, 0xB0 ]
                 |> expect (tagged EpochDateTime int) (Just ( EpochDateTime, 1363896240 ))
             , hex [ 0xD7, 0x44, 0x01, 0x02, 0x03, 0x04 ]
-                |> expect (tagged Base16Conversion bytes) (Just ( Base16Conversion, hex [ 0x01, 0x02, 0x03, 0x04 ] ))
+                |> expect (tagged Base16Conversion bytes) (Just ( Base16Conversion, Tuple.second <| hex [ 0x01, 0x02, 0x03, 0x04 ] ))
             , hex [ 0xD8, 0x18, 0x45, 0x64, 0x49, 0x45, 0x54, 0x46 ]
-                |> expect (tagged Cbor bytes) (Just ( Cbor, hex [ 0x64, 0x49, 0x45, 0x54, 0x46 ] ))
+                |> expect (tagged Cbor bytes) (Just ( Cbor, Tuple.second <| hex [ 0x64, 0x49, 0x45, 0x54, 0x46 ] ))
             , hex [ 0xC0, 0x00, 0x00 ]
                 |> expect (tagged Cbor string) Nothing
             , hex [ 0xD8, 0x2A, 0x0E ]
@@ -296,14 +296,14 @@ type alias Map5 =
 
 {-| Alias / Shortcut to write test cases
 -}
-expect : Decoder a -> Maybe a -> Bytes -> Test
-expect decoder output input =
-    test (Debug.toString input ++ " -> " ++ Debug.toString output) <|
+expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
+expect decoder output ( readable, input ) =
+    test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
         \_ -> input |> decodeBytes decoder |> Expect.equal output
 
 
 {-| Convert a list of BE unsigned8 to bytes
 -}
-hex : List Int -> Bytes
-hex =
-    List.map Bytes.unsignedInt8 >> Bytes.sequence >> Bytes.encode
+hex : List Int -> ( List Int, Bytes )
+hex xs =
+    ( xs, xs |> List.map Bytes.unsignedInt8 >> Bytes.sequence >> Bytes.encode )
