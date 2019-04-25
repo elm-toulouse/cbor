@@ -83,8 +83,6 @@ type Encoder
     type Duration
         = Duration Int
 
-
-    -- ENCODER
     encodeAlbum : Album -> E.Encoder
     encodeAlbum { artist, title, year, tracks, links } =
         let

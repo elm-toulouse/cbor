@@ -1,5 +1,5 @@
 module Cbor.Decode exposing
-    ( Decoder, decodeBytes
+    ( Decoder, decode
     , bool, int, float, string, bytes
     , list, dict, pair, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
@@ -15,7 +15,7 @@ MessagePack.
 
 ## Decoder
 
-@docs Decoder, decodeBytes
+@docs Decoder, decode
 
 
 ## Primitives
@@ -54,12 +54,49 @@ import Tuple exposing (first)
 ------------------------------------------------------------------------------}
 
 
+{-| Describes how to turn a binary CBOR sequence of bytes into a nice Elm value.
+-}
 type Decoder a
     = Decoder MajorType (Int -> D.Decoder a)
 
 
-decodeBytes : Decoder a -> Bytes -> Maybe a
-decodeBytes d =
+{-| Turn a binary CBOR sequence of bytes into a nice Elm value.
+
+    import Cbor.Decode as D
+    import Url exposing (Url)
+
+    type alias Album =
+        { artist : String
+        , title : String
+        , year : Int
+        , tracks : List ( String, Duration )
+        , links : List Url
+        }
+
+    type Duration
+        = Duration Int
+
+    decodeAlbum : D.Decoder Album
+    decodeAlbum =
+        let
+            link =
+                D.string
+                    |> D.map Url.fromString
+                    |> D.andThen (Maybe.map D.succeed >> Maybe.withDefault D.fail)
+
+            track =
+                D.pair D.string (D.map Duration D.int)
+        in
+        D.map5 Album
+            D.string
+            D.string
+            D.int
+            (D.list track)
+            (D.list link)
+
+-}
+decode : Decoder a -> Bytes -> Maybe a
+decode d =
     D.decode (runDecoder d)
 
 
@@ -69,6 +106,8 @@ decodeBytes d =
 -------------------------------------------------------------------------------}
 
 
+{-| Decode a boolean
+-}
 bool : Decoder Bool
 bool =
     Decoder (MajorType 7) <|
@@ -83,6 +122,11 @@ bool =
                 D.fail
 
 
+{-| Decode an integer. Note that there's no granular decoders (nor encoders) for
+integers like 'unsignedInt8' or 'signedInt32' because, the CBOR encoding
+of an integers varies depending on the integer value. Therefore, at the
+CBOR-level, as in Elm, there's no notion of _smaller_ integers.
+-}
 int : Decoder Int
 int =
     -- NOTE Unfortunately, we don't have any 'Alternative'-ish instance on
@@ -103,6 +147,21 @@ int =
         )
 
 
+{-| Decode a floating point number, regardless of its precision. Because in Elm,
+there exists only one 'Float' type, which is encoded in double-precision, we do
+decode all floats into this double-precision number in Elm which may lead to
+some precision gain and therefore, different representation than one would
+expect.
+
+    D.decode D.float <| E.encode (E.float16 1.1) == Just 1.099609375
+
+    D.decode D.float <| E.encode (E.float64 1.1) == Just 1.1
+
+    E.Encode (E.float16 1.1) == [ 0xF9, 0x3C, 0x66 ]
+
+    E.Encode (E.float64 1.1) == [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
+
+-}
 float : Decoder Float
 float =
     Decoder (MajorType 7) <|
@@ -120,6 +179,10 @@ float =
                 D.fail
 
 
+{-| Decode a bunch UTF-8 bytes into a 'String'. In case of streaming, all
+strings are decoded at once and concatenated as if they were one big string.
+See also 'Cbor.Encode.beginStrings'
+-}
 string : Decoder String
 string =
     let
@@ -150,6 +213,10 @@ string =
                 unsigned a |> D.andThen D.string
 
 
+{-| Decode a bunch bytes into 'Bytes'. In case of streaming, all
+bytes are decoded at once and concatenated as if they were one big byte string.
+See also 'Cbor.Encode.beginBytes'
+-}
 bytes : Decoder Bytes
 bytes =
     let
@@ -188,6 +255,15 @@ bytes =
 -------------------------------------------------------------------------------}
 
 
+{-| Decode a 'List' of items 'a'. The list can be finite or infinite.
+
+    decode (list int) [ 0x82, 0x0E, 0x18, 0x2A ] == Just [ 14, 42 ]
+
+    decode (list int) [ 0x9F, 0x01, 0x02, 0xFF ] == Just [ 1, 1 ]
+
+    decode (list (list bool)) [ 0x81, 0x9F, 0xF4, 0xFF ] == Just [ [ False ] ]
+
+-}
 list : Decoder a -> Decoder (List a)
 list ((Decoder major payload) as elem) =
     let
@@ -219,6 +295,12 @@ list ((Decoder major payload) as elem) =
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
+{-| Decode a 2-tuple. This is mostly a helper around a list decoder with 2
+elements, with non-uniform types.
+
+    decode (pair int bool) [ 0x82, 0x0E, 0xF5 ] == Just ( 14, True )
+
+-}
 pair : Decoder a -> Decoder b -> Decoder ( a, b )
 pair a b =
     Decoder (MajorType 4) <|
@@ -390,12 +472,12 @@ This implementation does little interpretation of the tags and is limited to
 only decoding the tag's value. The tag's payload has to be specified as any
 other decoder. So, using the previous example, one could decode a bignum as:
 
-    >>> decodeBytes (tag |> andThen (\t -> bytes)) input
+    >>> decode (tag |> andThen (\t -> bytes)) input
 
 You may also use @tagged@ if you as a helper to decode a tagged value, while
 verifying that the tag matches what you expect.
 
-    >>> decodeBytes (tagged PositiveBigNum bytes) input
+    >>> decode (tagged PositiveBigNum bytes) input
 
 -}
 type Tag

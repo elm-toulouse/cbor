@@ -15,7 +15,7 @@ import Cbor.Decode
         , andThen
         , bool
         , bytes
-        , decodeBytes
+        , decode
         , dict
         , fail
         , float
@@ -299,7 +299,7 @@ type alias Map5 =
 expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
 expect decoder output ( readable, input ) =
     test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
-        \_ -> input |> decodeBytes decoder |> Expect.equal output
+        \_ -> input |> decode decoder |> Expect.equal output
 
 
 {-| Convert a list of BE unsigned8 to bytes
