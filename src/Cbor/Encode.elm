@@ -1,8 +1,8 @@
 module Cbor.Encode exposing
     ( Encoder, encode, sequence
-    , bool, int, float, string
+    , bool, int, float, string, bytes
     , float16, float32, float64
-    , beginStrings, break
+    , beginStrings, beginBytes, break
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -34,7 +34,7 @@ MessagePack.
 
 ## Indefinite Data Structures
 
-@docs beginStrings, break
+@docs beginStrings, beginBytes, break
 
 
 ## Mapping
@@ -157,7 +157,7 @@ float =
     float64
 
 
-{-| Encode a 'String' of fixed sized
+{-| Encode a 'String' of fixed size
 -}
 string : String -> Encoder
 string str =
@@ -165,6 +165,17 @@ string str =
         E.sequence
             [ unsigned 3 (E.getStringWidth str)
             , E.string str
+            ]
+
+
+{-| Encode raw 'Bytes' of fixed size
+-}
+bytes : Bytes -> Encoder
+bytes bs =
+    Encoder <|
+        E.sequence
+            [ unsigned 2 (Bytes.width bs)
+            , E.bytes bs
             ]
 
 
@@ -207,7 +218,7 @@ float64 n =
             ]
 
 
-{-| Encode a 'String' of indefinite length. This specified the beginning of
+{-| Encode a 'String' of indefinite length. This indicates the beginning of
 multiple calls to 'string', followed by a 'break' to signal the end of the
 stream. For example:
 
@@ -223,6 +234,23 @@ stream. For example:
 beginStrings : Encoder
 beginStrings =
     Encoder <| majorType 3 tBEGIN
+
+
+{-| Encode a 'Bytes' of indefinite length. This indicates the beginning of
+multiple calls to 'bytes', followed by a 'break' to signal the end of the
+stream. For example:
+
+    E.sequence
+        [ E.beginBytes
+        , E.bytes <0x01, 0x02>
+        , E.bytes <0x03, 0x04>
+        , E.break
+        ]
+
+-}
+beginBytes : Encoder
+beginBytes =
+    Encoder <| majorType 2 tBEGIN
 
 
 {-| Encode termination of an indefinite structure.

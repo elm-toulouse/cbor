@@ -8,12 +8,15 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Bytes, width)
 import Bytes.Decode as D
+import Bytes.Encode as E
 import Cbor.Encode
     exposing
         ( Encoder
+        , beginBytes
         , beginStrings
         , bool
         , break
+        , bytes
         , encode
         , float
         , float16
@@ -70,6 +73,19 @@ suite =
                 |> expect [ 0x3B, 0x00, 0x00, 0x00, 0x02, 0x54, 0x0B, 0xE3, 0xFF ]
             , int -9007199254740992
                 |> expect [ 0x3B, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ]
+            ]
+        , describe "Major Type 2: a byte string"
+            [ bytes (toBytes [])
+                |> expect [ 0x40 ]
+            , bytes (toBytes [ 0x01, 0x02, 0x03, 0x04 ])
+                |> expect [ 0x44, 0x01, 0x02, 0x03, 0x04 ]
+            , sequence
+                [ beginBytes
+                , bytes (toBytes [ 0x01, 0x02 ])
+                , bytes (toBytes [ 0x03, 0x04, 0x05 ])
+                , break
+                ]
+                |> expect [ 0x5F, 0x42, 0x01, 0x02, 0x43, 0x03, 0x04, 0x05, 0xFF ]
             ]
         , describe "Major Type 3: a text string"
             [ string ""
@@ -163,3 +179,10 @@ hex bytes =
                             |> D.map (\x -> D.Loop ( n - 1, x :: xs ))
                 )
             )
+
+
+{-| Convert a list of BE unsigned8 to bytes
+-}
+toBytes : List Int -> Bytes
+toBytes =
+    List.map E.unsignedInt8 >> E.sequence >> E.encode
