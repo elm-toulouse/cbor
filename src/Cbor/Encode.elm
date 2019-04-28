@@ -2,7 +2,8 @@ module Cbor.Encode exposing
     ( Encoder, encode, sequence
     , bool, int, float, string, bytes
     , float16, float32, float64
-    , beginStrings, beginBytes, break
+    , list
+    , beginStrings, beginBytes, beginList, break
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -34,7 +35,7 @@ MessagePack.
 
 ## Indefinite Data Structures
 
-@docs beginStrings, beginBytes, break
+@docs beginStrings, beginBytes, beginList, break
 
 
 ## Mapping
@@ -218,6 +219,48 @@ float64 n =
             ]
 
 
+
+{-------------------------------------------------------------------------------
+                               Data-Structures
+-------------------------------------------------------------------------------}
+
+
+{-| Turn a 'List' into a CBOR array
+
+    E.list E.int [1,2,3] == Bytes <0x..>
+
+-}
+list : (a -> Encoder) -> List a -> Encoder
+list encodeOne xs =
+    Encoder <|
+        E.sequence <|
+            unsigned 4 (List.length xs)
+                :: List.map (encodeOne >> (\(Encoder x) -> x)) xs
+
+
+
+{-------------------------------------------------------------------------------
+                              Indefinite Data-Structures
+-------------------------------------------------------------------------------}
+
+
+{-| Encode a 'Bytes' of indefinite length. This indicates the beginning of
+multiple calls to 'bytes', followed by a 'break' to signal the end of the
+stream. For example:
+
+    E.sequence
+        [ E.beginBytes
+        , E.bytes <0x01, 0x02>
+        , E.bytes <0x03, 0x04>
+        , E.break
+        ]
+
+-}
+beginBytes : Encoder
+beginBytes =
+    Encoder <| majorType 2 tBEGIN
+
+
 {-| Encode a 'String' of indefinite length. This indicates the beginning of
 multiple calls to 'string', followed by a 'break' to signal the end of the
 stream. For example:
@@ -236,21 +279,22 @@ beginStrings =
     Encoder <| majorType 3 tBEGIN
 
 
-{-| Encode a 'Bytes' of indefinite length. This indicates the beginning of
-multiple calls to 'bytes', followed by a 'break' to signal the end of the
+{-| Encode a 'List' of indefinite length. This indicates the beginning of
+multiple calls for encoding elements, followed by a 'break' to signal the end of the
 stream. For example:
 
     E.sequence
-        [ E.beginBytes
-        , E.bytes <0x01, 0x02>
-        , E.bytes <0x03, 0x04>
+        [ E.beginList
+        , E.string "elm"
+        , E.string "rocks"
+        , E.string "!"
         , E.break
         ]
 
 -}
-beginBytes : Encoder
-beginBytes =
-    Encoder <| majorType 2 tBEGIN
+beginList : Encoder
+beginList =
+    Encoder <| majorType 4 tBEGIN
 
 
 {-| Encode termination of an indefinite structure.

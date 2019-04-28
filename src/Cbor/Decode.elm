@@ -257,11 +257,11 @@ bytes =
 
 {-| Decode a 'List' of items 'a'. The list can be finite or infinite.
 
-    decode (list int) [ 0x82, 0x0E, 0x18, 0x2A ] == Just [ 14, 42 ]
+    D.decode (D.list D.int) [ 0x82, 0x0E, 0x18, 0x2A ] == Just [ 14, 42 ]
 
-    decode (list int) [ 0x9F, 0x01, 0x02, 0xFF ] == Just [ 1, 1 ]
+    D.decode (D.list D.int) [ 0x9F, 0x01, 0x02, 0xFF ] == Just [ 1, 1 ]
 
-    decode (list (list bool)) [ 0x81, 0x9F, 0xF4, 0xFF ] == Just [ [ False ] ]
+    D.decode (D.list (D.list D.bool)) [ 0x81, 0x9F, 0xF4, 0xFF ] == Just [ [ False ] ]
 
 -}
 list : Decoder a -> Decoder (List a)

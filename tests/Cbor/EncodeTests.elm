@@ -13,6 +13,7 @@ import Cbor.Encode
     exposing
         ( Encoder
         , beginBytes
+        , beginList
         , beginStrings
         , bool
         , break
@@ -23,6 +24,7 @@ import Cbor.Encode
         , float32
         , float64
         , int
+        , list
         , sequence
         , string
         )
@@ -109,6 +111,38 @@ suite =
                     )
             , sequence [ beginStrings, string "a", string "b", break ]
                 |> expect [ 0x7F, 0x61, 0x61, 0x61, 0x62, 0xFF ]
+            ]
+        , describe "Major Type 4: an array of data-items"
+            [ list int []
+                |> expect [ 0x80 ]
+            , list int [ 1, 2, 3 ]
+                |> expect [ 0x83, 0x01, 0x02, 0x03 ]
+            , list (list int) [ [ 1 ], [ 2, 3 ], [ 4, 5 ] ]
+                |> expect [ 0x83, 0x81, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05 ]
+            , list int [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 ]
+                |> expect
+                    ([ 0x98, 0x19, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 ]
+                        ++ [ 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10 ]
+                        ++ [ 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x18 ]
+                        ++ [ 0x18, 0x19 ]
+                    )
+            , sequence [ beginList, break ]
+                |> expect [ 0x9F, 0xFF ]
+            , sequence [ beginList, int 1, list int [ 2, 3 ], sequence [ beginList, int 4, int 5, break ], break ]
+                |> expect [ 0x9F, 0x01, 0x82, 0x02, 0x03, 0x9F, 0x04, 0x05, 0xFF, 0xFF ]
+            , sequence [ beginList, int 1, list int [ 2, 3 ], list int [ 4, 5 ], break ]
+                |> expect [ 0x9F, 0x01, 0x82, 0x02, 0x03, 0x82, 0x04, 0x05, 0xFF ]
+            , list (\x -> x) [ int 1, list int [ 2, 3 ], sequence [ beginList, int 4, int 5, break ] ]
+                |> expect [ 0x83, 0x01, 0x82, 0x02, 0x03, 0x9F, 0x04, 0x05, 0xFF ]
+            , list (\x -> x) [ int 1, sequence [ beginList, int 2, int 3, break ], list int [ 4, 5 ] ]
+                |> expect [ 0x83, 0x01, 0x9F, 0x02, 0x03, 0xFF, 0x82, 0x04, 0x05 ]
+            , sequence ([ beginList ] ++ List.map int [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 ] ++ [ break ])
+                |> expect
+                    ([ 0x9F, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 ]
+                        ++ [ 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10 ]
+                        ++ [ 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x18 ]
+                        ++ [ 0x18, 0x19, 0xFF ]
+                    )
             ]
         , describe "Major Type 7: floating-point numbers and simple data types"
             [ bool True
