@@ -31,7 +31,9 @@ import Cbor.Encode
         , pair
         , sequence
         , string
+        , tagged
         )
+import Cbor.Tag exposing (Tag(..))
 import Dict
 import Expect
 import Test exposing (Test, describe, test)
@@ -186,6 +188,22 @@ suite =
                 ]
                 |> expect
                     [ 0xBF, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02, 0xFF ]
+            ]
+        , describe "Major Type 6: tags"
+            [ tagged StandardDateTime string "2013-03-21T20:04:00Z"
+                |> expect
+                    ([ 0xC0, 0x74, 0x32, 0x30, 0x31, 0x33, 0x2D, 0x30 ]
+                        ++ [ 0x33, 0x2D, 0x32, 0x31, 0x54, 0x32, 0x30 ]
+                        ++ [ 0x3A, 0x30, 0x34, 0x3A, 0x30, 0x30, 0x5A ]
+                    )
+            , tagged EpochDateTime int 1363896240
+                |> expect [ 0xC1, 0x1A, 0x51, 0x4B, 0x67, 0xB0 ]
+            , tagged EpochDateTime float 1363896240.5
+                |> expect [ 0xC1, 0xFB, 0x41, 0xD4, 0x52, 0xD9, 0xEC, 0x20, 0x00, 0x00 ]
+            , tagged Base16Conversion bytes (toBytes [ 0x01, 0x02, 0x03, 0x04 ])
+                |> expect [ 0xD7, 0x44, 0x01, 0x02, 0x03, 0x04 ]
+            , tagged Cbor bytes (encode <| string "IETF")
+                |> expect [ 0xD8, 0x18, 0x45, 0x64, 0x49, 0x45, 0x54, 0x46 ]
             ]
         , describe "Major Type 7: floating-point numbers and simple data types"
             [ bool True

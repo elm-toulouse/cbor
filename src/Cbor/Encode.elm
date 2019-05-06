@@ -4,6 +4,7 @@ module Cbor.Encode exposing
     , float16, float32, float64
     , list, dict, pair
     , beginStrings, beginBytes, beginList, beginDict, break
+    , tag, tagged
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -33,19 +34,14 @@ MessagePack.
 @docs list, dict, pair
 
 
-## Indefinite Data Structures
+## Streaming
 
 @docs beginStrings, beginBytes, beginList, beginDict, break
 
 
-## Mapping
-
-@docs succeed, fail, andThen, map, map2, map3, map4, map5
-
-
 ## Tagging
 
-@docs Tag, tag, tagged
+@docs tag, tagged
 
 -}
 
@@ -54,6 +50,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Encode as E
+import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
 
 
@@ -274,7 +271,7 @@ dict k v d =
 
 
 {-------------------------------------------------------------------------------
-                              Indefinite Data-Structures
+                                 Streaming
 -------------------------------------------------------------------------------}
 
 
@@ -358,7 +355,81 @@ break =
 
 
 {-------------------------------------------------------------------------------
-                                 Internals
+                                    Tagging
+-------------------------------------------------------------------------------}
+
+
+{-| Encode a particular 'Tag' to binary CBOR
+-}
+tag : Tag -> Encoder
+tag t =
+    Encoder <|
+        case t of
+            StandardDateTime ->
+                unsigned 6 0
+
+            EpochDateTime ->
+                unsigned 6 1
+
+            PositiveBigNum ->
+                unsigned 6 2
+
+            NegativeBigNum ->
+                unsigned 6 3
+
+            DecimalFraction ->
+                unsigned 6 4
+
+            BigFloat ->
+                unsigned 6 5
+
+            Base64UrlConversion ->
+                unsigned 6 21
+
+            Base64Conversion ->
+                unsigned 6 22
+
+            Base16Conversion ->
+                unsigned 6 23
+
+            Cbor ->
+                unsigned 6 24
+
+            Uri ->
+                unsigned 6 32
+
+            Base64Url ->
+                unsigned 6 33
+
+            Base64 ->
+                unsigned 6 34
+
+            Regex ->
+                unsigned 6 35
+
+            Mime ->
+                unsigned 6 36
+
+            IsCbor ->
+                unsigned 6 55799
+
+            Unknown i ->
+                unsigned 6 i
+
+
+{-| Helper to quickly encode a tagged value
+
+    tagged t encodeA a == sequence [ tag t, encodeA a ]
+
+-}
+tagged : Tag -> (a -> Encoder) -> a -> Encoder
+tagged t encodeA a =
+    sequence [ tag t, encodeA a ]
+
+
+
+{-------------------------------------------------------------------------------
+                                   Internals
 -------------------------------------------------------------------------------}
 
 
