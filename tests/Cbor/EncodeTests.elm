@@ -13,11 +13,13 @@ import Cbor.Encode
     exposing
         ( Encoder
         , beginBytes
+        , beginDict
         , beginList
         , beginStrings
         , bool
         , break
         , bytes
+        , dict
         , encode
         , float
         , float16
@@ -25,6 +27,8 @@ import Cbor.Encode
         , float64
         , int
         , list
+        , null
+        , pair
         , sequence
         , string
         )
@@ -144,11 +148,52 @@ suite =
                         ++ [ 0x18, 0x19, 0xFF ]
                     )
             ]
+        , describe "Major Type 5: a map of pairs of data-items"
+            [ dict int int (Dict.fromList [])
+                |> expect [ 0xA0 ]
+            , dict int int (Dict.fromList [ ( 1, 2 ), ( 3, 4 ) ])
+                |> expect [ 0xA2, 0x01, 0x02, 0x03, 0x04 ]
+            , dict string int (Dict.fromList [ ( "a", 1 ), ( "b", 2 ) ])
+                |> expect [ 0xA2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02 ]
+            , dict string
+                identity
+                (Dict.fromList
+                    [ ( "a", int 1 )
+                    , ( "b", list int [ 2, 3 ] )
+                    ]
+                )
+                |> expect [ 0xA2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x82, 0x02, 0x03 ]
+            , dict string
+                string
+                (Dict.fromList
+                    [ ( "a", "A" )
+                    , ( "b", "B" )
+                    , ( "c", "C" )
+                    , ( "d", "D" )
+                    , ( "e", "E" )
+                    ]
+                )
+                |> expect
+                    ([ 0xA5, 0x61, 0x61, 0x61, 0x41, 0x61, 0x62, 0x61 ]
+                        ++ [ 0x42, 0x61, 0x63, 0x61, 0x43, 0x61, 0x64, 0x61 ]
+                        ++ [ 0x44, 0x61, 0x65, 0x61, 0x45 ]
+                    )
+            , sequence
+                [ beginDict
+                , pair string int ( "a", 1 )
+                , pair string int ( "b", 2 )
+                , break
+                ]
+                |> expect
+                    [ 0xBF, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02, 0xFF ]
+            ]
         , describe "Major Type 7: floating-point numbers and simple data types"
             [ bool True
                 |> expect [ 0xF5 ]
             , bool False
                 |> expect [ 0xF4 ]
+            , null
+                |> expect [ 0xF6 ]
             , float16 0.0
                 |> expect [ 0xF9, 0x00, 0x00 ]
             , float16 -0.0

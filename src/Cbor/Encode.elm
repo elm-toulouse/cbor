@@ -1,9 +1,9 @@
 module Cbor.Encode exposing
     ( Encoder, encode, sequence
-    , bool, int, float, string, bytes
+    , bool, int, float, string, bytes, null
     , float16, float32, float64
-    , list
-    , beginStrings, beginBytes, beginList, break
+    , list, dict, pair
+    , beginStrings, beginBytes, beginList, beginDict, break
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -20,7 +20,7 @@ MessagePack.
 
 ## Primitives
 
-@docs bool, int, float, string, bytes
+@docs bool, int, float, string, bytes, null
 
 
 ## Fancier Primitives
@@ -30,12 +30,12 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, dict, pair, maybe
+@docs list, dict, pair
 
 
 ## Indefinite Data Structures
 
-@docs beginStrings, beginBytes, beginList, break
+@docs beginStrings, beginBytes, beginList, beginDict, break
 
 
 ## Mapping
@@ -54,6 +54,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Encode as E
+import Dict exposing (Dict)
 
 
 
@@ -180,6 +181,14 @@ bytes bs =
             ]
 
 
+{-| Create a CBOR `null` value. This can be decoded using `maybe` from the
+Cbor.Decode package
+-}
+null : Encoder
+null =
+    Encoder <| E.unsignedInt8 0xF6
+
+
 
 {-------------------------------------------------------------------------------
                               Fancier Primitives
@@ -227,15 +236,40 @@ float64 n =
 
 {-| Turn a 'List' into a CBOR array
 
-    E.list E.int [1,2,3] == Bytes <0x..>
+    E.list E.int [1,2,3] == Bytes <0xTODO>
 
 -}
 list : (a -> Encoder) -> List a -> Encoder
-list encodeOne xs =
-    Encoder <|
-        E.sequence <|
-            unsigned 4 (List.length xs)
-                :: List.map (encodeOne >> (\(Encoder x) -> x)) xs
+list e xs =
+    sequence <|
+        Encoder (unsigned 4 (List.length xs))
+            :: List.map e xs
+
+
+{-| Turn a 2-'Tuple' into a CBOR array
+
+    E.pair E.string E.int ("cbor", 14) == Bytes <0xTODO>
+
+-}
+pair : (a -> Encoder) -> (b -> Encoder) -> ( a, b ) -> Encoder
+pair encodeA encodeB ( a, b ) =
+    sequence
+        [ encodeA a
+        , encodeB b
+        ]
+
+
+{-| Turn a 'Dict' into a CBOR array
+
+    E.dict E.string E.int (Dict.fromList [("cbor", 14)]) === Bytes <0xTODO>
+    E.dict E.int E.float16 (Dict.fromList [(3,14.42)]) === Bytes <0xTODO>
+
+-}
+dict : (k -> Encoder) -> (v -> Encoder) -> Dict k v -> Encoder
+dict k v d =
+    sequence <|
+        Encoder (unsigned 5 (Dict.size d))
+            :: List.map (pair k v) (Dict.toList d)
 
 
 
@@ -295,6 +329,24 @@ stream. For example:
 beginList : Encoder
 beginList =
     Encoder <| majorType 4 tBEGIN
+
+
+{-| Encode a 'Dict' of indefinite length. This indicates the beginning of
+multiple calls for encoding pairs of elements, followed by a 'break' to signal
+the end of the stream. For example:
+
+    E.sequence
+        [ E.beginDict
+        , E.pair E.int E.string ( 1, "elm" )
+        , E.pair E.int E.string ( 2, "rocks" )
+        , E.pair E.int E.string ( 3, "!" )
+        , E.break
+        ]
+
+-}
+beginDict : Encoder
+beginDict =
+    Encoder <| majorType 5 tBEGIN
 
 
 {-| Encode termination of an indefinite structure.
