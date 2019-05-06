@@ -36,6 +36,17 @@ MessagePack.
 
 ## Streaming
 
+Four CBOR items (arrays, maps, byte strings, and text strings) can be encoded
+with an indefinite length. This is useful if the encoding of the item needs to
+begin before the number of items inside the array or map, or the total length
+of the string, is known. (The application of this is often referred to as
+"streaming" within a data item.)
+
+> NOTE:
+>
+> Indefinite-length arrays and maps are dealt with differently than
+> indefinite-length byte strings and text strings.
+
 @docs beginStrings, beginBytes, beginList, beginDict, break
 
 
@@ -258,8 +269,12 @@ pair encodeA encodeB ( a, b ) =
 
 {-| Turn a 'Dict' into a CBOR array
 
-    E.dict E.string E.int (Dict.fromList [("cbor", 14)]) === Bytes <0xTODO>
-    E.dict E.int E.float16 (Dict.fromList [(3,14.42)]) === Bytes <0xTODO>
+    E.dict E.string E.int (Dict.fromList [("a", 1), ("b", 2)])
+        ==
+    Bytes <0xA2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02>
+
+Note that in CBOR, every data-structure are mostly arrays of items. As a
+consequence, dictionnaries are encoded as a list of pairs (key, value).
 
 -}
 dict : (k -> Encoder) -> (v -> Encoder) -> Dict k v -> Encoder
@@ -350,7 +365,7 @@ beginDict =
 -}
 break : Encoder
 break =
-    Encoder <| E.unsignedInt8 0xFF
+    Encoder <| E.unsignedInt8 tBREAK
 
 
 
