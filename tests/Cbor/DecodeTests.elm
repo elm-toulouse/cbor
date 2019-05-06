@@ -120,9 +120,9 @@ suite =
                 |> expect (list int) (Just [ 1, 2, 3, 4 ])
             , hex [ 0x9F, 0x81, 0x01, 0x9F, 0x02, 0x02, 0xFF, 0x82, 0x03, 0x03, 0xFF ]
                 |> expect (list (list int)) (Just [ [ 1 ], [ 2, 2 ], [ 3, 3 ] ])
-            , hex [ 0x82, 0x0E, 0x62, 0x34, 0x32 ]
+            , hex [ 0x0E, 0x62, 0x34, 0x32 ]
                 |> expect (pair int string) (Just ( 14, "42" ))
-            , hex [ 0x83, 0x0E, 0x62, 0x34, 0x32 ]
+            , hex [ 0x0E, 0x62, 0x34, 0x32 ]
                 |> expect (pair int int) Nothing
             ]
         , describe "Major Type 5: a map of pairs of data items"

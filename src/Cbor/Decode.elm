@@ -298,21 +298,12 @@ list ((Decoder major payload) as elem) =
 {-| Decode a 2-tuple. This is mostly a helper around a list decoder with 2
 elements, with non-uniform types.
 
-    decode (pair int bool) [ 0x82, 0x0E, 0xF5 ] == Just ( 14, True )
+    decode (pair int bool) [ 0x0E, 0xF5 ] == Just ( 14, True )
 
 -}
 pair : Decoder a -> Decoder b -> Decoder ( a, b )
 pair a b =
-    Decoder (MajorType 4) <|
-        unsigned
-            >> D.andThen
-                (\n ->
-                    if n /= 2 then
-                        D.fail
-
-                    else
-                        D.map2 Tuple.pair (runDecoder a) (runDecoder b)
-                )
+    map2 Tuple.pair a b
 
 
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
