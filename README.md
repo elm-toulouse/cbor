@@ -1,4 +1,4 @@
-![](.github/logo.png)
+![](https://raw.githubusercontent.com/elm-toulouse/cbor/master/.github/logo.png)
 
 ---
 
@@ -91,4 +91,4 @@ Code coverage available [here](https://elm-toulouse.github.io/cbor)
 
 ## Changelog
 
-[CHANGELOG.md](CHANGELOG.md)
+[CHANGELOG.md](https://github.com/elm-toulouse/cbor/blob/master/CHANGELOG.md)
