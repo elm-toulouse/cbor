@@ -3,7 +3,7 @@ module Cbor.Decode exposing
     , bool, int, float, string, bytes
     , list, dict, pair, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
-    , Tag(..), tag, tagged
+    , tag, tagged
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -35,7 +35,7 @@ MessagePack.
 
 ## Tagging
 
-@docs Tag, tag, tagged
+@docs tag, tagged
 
 -}
 
@@ -44,6 +44,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Decode as D
+import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
 import Tuple exposing (first)
 
@@ -454,12 +455,7 @@ map5 fn a b c d e =
 -------------------------------------------------------------------------------}
 
 
-{-| Optional semantic tags as specified in the RFC 7049. Tags can be used to
-give an extra meaning to a generic piece of data that follows it. For instance,
-one could encode a bignum as a raw byte string and add a corresponding tag 0x02
-to indicates what meaning can be given to that bytestring.
-
-This implementation does little interpretation of the tags and is limited to
+{-| This implementation does little interpretation of the tags and is limited to
 only decoding the tag's value. The tag's payload has to be specified as any
 other decoder. So, using the previous example, one could decode a bignum as:
 
@@ -471,26 +467,6 @@ verifying that the tag matches what you expect.
     >>> decode (tagged PositiveBigNum bytes) input
 
 -}
-type Tag
-    = StandardDateTime
-    | EpochDateTime
-    | PositiveBigNum
-    | NegativeBigNum
-    | DecimalFraction
-    | BigFloat
-    | Base64UrlConversion
-    | Base64Conversion
-    | Base16Conversion
-    | Cbor
-    | Uri
-    | Base64Url
-    | Base64
-    | Regex
-    | Mime
-    | IsCbor
-    | Unknown Int
-
-
 tag : Decoder Tag
 tag =
     Decoder (MajorType 6) <|
@@ -551,6 +527,16 @@ tag =
                 )
 
 
+{-| Decode a value that is tagged with the given 'Tag'. Fails if the value is
+not tagged, or, tag with some other 'Tag'
+
+    decode (tagged Cbor int) [ 0xD8, 0x0E ] == Just ( Cbor, 14 )
+
+    decode (tagged Base64 int) [ 0xD8, 0x0E ] == Nothing
+
+    decode (tagged Cbor int) [ 0x0E ] == Nothing
+
+-}
 tagged : Tag -> Decoder a -> Decoder ( Tag, a )
 tagged t a =
     tag

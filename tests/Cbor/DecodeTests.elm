@@ -11,7 +11,6 @@ import Bytes.Encode as E
 import Cbor.Decode
     exposing
         ( Decoder
-        , Tag(..)
         , andThen
         , bool
         , bytes
@@ -33,6 +32,7 @@ import Cbor.Decode
         , tag
         , tagged
         )
+import Cbor.Tag exposing (Tag(..))
 import Dict
 import Expect
 import Test exposing (Test, describe, test)

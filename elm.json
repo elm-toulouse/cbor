@@ -6,7 +6,8 @@
     "version": "1.0.0",
     "exposed-modules": [
         "Cbor.Encode",
-        "Cbor.Decode"
+        "Cbor.Decode",
+        "Cbor.Tag"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {
