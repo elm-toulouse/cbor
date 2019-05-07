@@ -107,7 +107,7 @@ decode d =
 -------------------------------------------------------------------------------}
 
 
-{-| Decode a boolean
+{-| Decode a boolean.
 -}
 bool : Decoder Bool
 bool =
@@ -158,9 +158,9 @@ expect.
 
     D.decode D.float <| E.encode (E.float64 1.1) == Just 1.1
 
-    E.Encode (E.float16 1.1) == [ 0xF9, 0x3C, 0x66 ]
+    E.Encode (E.float16 1.1) == Bytes<0xF9, 0x3C, 0x66>
 
-    E.Encode (E.float64 1.1) == [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
+    E.Encode (E.float64 1.1) == Bytes<0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A>
 
 -}
 float : Decoder Float
@@ -256,13 +256,14 @@ bytes =
 -------------------------------------------------------------------------------}
 
 
-{-| Decode a 'List' of items 'a'. The list can be finite or infinite.
+{-| Decode a 'List' of items 'a'. The list can be finite or infinite (see also
+_Streaming_ in Cbor.Encode).
 
-    D.decode (D.list D.int) [ 0x82, 0x0E, 0x18, 0x2A ] == Just [ 14, 42 ]
+    D.decode (D.list D.int) Bytes<0x82, 0x0E, 0x18, 0x2A> == Just [ 14, 42 ]
 
-    D.decode (D.list D.int) [ 0x9F, 0x01, 0x02, 0xFF ] == Just [ 1, 1 ]
+    D.decode (D.list D.int) Bytes<0x9F, 0x01, 0x02, 0xFF> == Just [ 1, 1 ]
 
-    D.decode (D.list (D.list D.bool)) [ 0x81, 0x9F, 0xF4, 0xFF ] == Just [ [ False ] ]
+    D.decode (D.list (D.list D.bool)) Bytes<0x81, 0x9F, 0xF4, 0xFF> == Just [ [ False ] ]
 
 -}
 list : Decoder a -> Decoder (List a)
@@ -299,7 +300,7 @@ list ((Decoder major payload) as elem) =
 {-| Decode a 2-tuple. This is mostly a helper around a list decoder with 2
 elements, with non-uniform types.
 
-    decode (pair int bool) [ 0x0E, 0xF5 ] == Just ( 14, True )
+    D.decode (D.pair D.int D.bool) Bytes<0x0E, 0xF5> == Just ( 14, True )
 
 -}
 pair : Decoder a -> Decoder b -> Decoder ( a, b )
@@ -307,6 +308,16 @@ pair a b =
     map2 Tuple.pair a b
 
 
+{-| Decode an CBOR map of pairs of data-items into an Elm 'Dict'. The map can be
+either of finite length or indefinite length (see also _Streaming_ in Cbor.Encode).
+
+    D.decode (D.dict D.int D.int) Bytes<0xA1, 0x0E, 0x18, 0x2A>
+        == Dict.fromList [ ( 14, 42 ) ]
+
+    D.decode (D.dict D.string D.int) Bytes<0xBF, 0x61, 0x61, 0x0E, 0x61, 0x62, 0x18, 0x2A, 0xFF>
+        == Dict.fromList [ ( "a", 14 ), ( "b", 42 ) ]
+
+-}
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
 dict key value =
     let
@@ -339,6 +350,13 @@ dict key value =
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
+{-| Helpful for dealing with optional fields. Turns `null` into `Nothing`.
+
+    D.decode (D.maybe D.bool) Bytes<0xF6> == Just Nothing
+
+    D.decode (D.maybe D.bool) Bytes<0xF4> == Just (Just False)
+
+-}
 maybe : Decoder a -> Decoder (Maybe a)
 maybe ((Decoder major payload) as decoder) =
     let
@@ -369,26 +387,84 @@ maybe ((Decoder major payload) as decoder) =
 -------------------------------------------------------------------------------}
 
 
+{-| Always succeed to produce a certain Elm value.
+
+    D.decode (D.succeed 14) Bytes<0x42, 0x28> == Just 14
+
+    D.decode (D.list (D.int |> D.andThen (\_ -> D.succeed 1))) Bytes<0x83, 0x00, 0x00, 0x00>
+        == Just [ 1, 1, 1 ]
+
+This particularly handy when used in combination with `andThen`.
+
+-}
 succeed : a -> Decoder a
 succeed a =
     Decoder MajorTypePlaceholder (\_ -> D.succeed a)
 
 
+{-| A decoder that always fail.
+
+    D.decode D.fail Bytes<0x00> == Nothing
+
+This is particularly handy when used in combination with `andThen`.
+
+-}
 fail : Decoder a
 fail =
     Decoder MajorTypePlaceholder (\_ -> D.fail)
 
 
+{-| Decode something and then use that information to decode something else.
+This is useful when a 'Decoder' depends on a value held by another decoder:
+
+    tagged : Tag -> Decoder a -> Decoder a
+    tagged expectedTag decodeA =
+        tag
+            |> andThen
+                (\decodedTag ->
+                    if decodedTag == expectedTag then
+                        decodeA
+
+                    else
+                        fail
+                )
+
+-}
 andThen : (a -> Decoder b) -> Decoder a -> Decoder b
 andThen fn a =
     Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.andThen (fn >> runDecoder))
 
 
+{-| Transform a decoder.
+
+For example, maybe you just want to know the length of a string:
+
+    import String
+
+    stringLength : Decoder Int
+    stringLength =
+        D.map String.length D.string
+
+-}
 map : (a -> value) -> Decoder a -> Decoder value
 map fn a =
     Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.map fn)
 
 
+{-| Try two decoders and then combine the result. Can be used to decode objects
+with many fields:
+
+    type alias Point =
+        { x : Float, y : Float }
+
+    point : Decoder Point
+    point =
+        D.map2 Point D.float D.float
+
+It tries each individual decoder and puts the result together with the Point
+constructor.
+
+-}
 map2 : (a -> b -> value) -> Decoder a -> Decoder b -> Decoder value
 map2 fn a b =
     Decoder MajorTypePlaceholder <|
@@ -398,6 +474,20 @@ map2 fn a b =
                 (runDecoder b)
 
 
+{-| Try three decoders and then combine the result. Can be used to decode
+objects with many fields:
+
+    type alias Person =
+        { name : String, age : Int, height : Float }
+
+    person : Decoder Person
+    person =
+        D.map3 Person D.string D.int D.float
+
+Like `map2` it tries each decoder in order and then give the results to the
+`Person` constructor. That can be any function though!
+
+-}
 map3 :
     (a -> b -> c -> value)
     -> Decoder a
@@ -413,6 +503,9 @@ map3 fn a b c =
                 (runDecoder c)
 
 
+{-| Try four decoders and then combine the result. See also 'map3' for some
+examples.
+-}
 map4 :
     (a -> b -> c -> d -> value)
     -> Decoder a
@@ -430,6 +523,9 @@ map4 fn a b c d =
                 (runDecoder d)
 
 
+{-| Try five decoders and then combine the result. See also 'map3' for some
+examples.
+-}
 map5 :
     (a -> b -> c -> d -> e -> value)
     -> Decoder a
@@ -459,12 +555,12 @@ map5 fn a b c d e =
 only decoding the tag's value. The tag's payload has to be specified as any
 other decoder. So, using the previous example, one could decode a bignum as:
 
-    >>> decode (tag |> andThen (\t -> bytes)) input
+    D.decode (D.tag |> D.andThen (\tag -> D.bytes)) input
 
 You may also use @tagged@ if you as a helper to decode a tagged value, while
 verifying that the tag matches what you expect.
 
-    >>> decode (tagged PositiveBigNum bytes) input
+    D.decode (D.tagged PositiveBigNum D.bytes) input
 
 -}
 tag : Decoder Tag
@@ -530,11 +626,11 @@ tag =
 {-| Decode a value that is tagged with the given 'Tag'. Fails if the value is
 not tagged, or, tag with some other 'Tag'
 
-    decode (tagged Cbor int) [ 0xD8, 0x0E ] == Just ( Cbor, 14 )
+    D.decode (D.tagged Cbor D.int) Bytes<0xD8, 0x0E> == Just ( Cbor, 14 )
 
-    decode (tagged Base64 int) [ 0xD8, 0x0E ] == Nothing
+    D.decode (D.tagged Base64 D.int) Bytes<0xD8, 0x0E> == Nothing
 
-    decode (tagged Cbor int) [ 0x0E ] == Nothing
+    D.decode (D.tagged Cbor D.int) Bytes<0x0E> == Nothing
 
 -}
 tagged : Tag -> Decoder a -> Decoder ( Tag, a )

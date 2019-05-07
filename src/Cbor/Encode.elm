@@ -116,7 +116,7 @@ encode (Encoder e) =
     E.encode e
 
 
-{-| Combine a bunch of encoders
+{-| Combine a bunch of encoders.
 -}
 sequence : List Encoder -> Encoder
 sequence =
@@ -129,7 +129,7 @@ sequence =
 -------------------------------------------------------------------------------}
 
 
-{-| Encode booleans
+{-| Encode booleans.
 -}
 bool : Bool -> Encoder
 bool n =
@@ -142,7 +142,7 @@ bool n =
                 E.unsignedInt8 0xF5
 
 
-{-| Encode integers from `-9007199254740992` (`-2⁵³`) to `9007199254740991` (`2⁵³ - 1`)
+{-| Encode integers from `-9007199254740992` (`-2⁵³`) to `9007199254740991` (`2⁵³ - 1`).
 -}
 int : Int -> Encoder
 int n =
@@ -159,7 +159,7 @@ int n =
 
 {-| Encode floating numbers with maximum precision (64-bit).
 
-> NOTE: This is an alias for 'float64'
+> NOTE: This is an alias for 'float64'.
 
 -}
 float : Float -> Encoder
@@ -167,7 +167,7 @@ float =
     float64
 
 
-{-| Encode a 'String' of fixed size
+{-| Encode a 'String' of fixed size.
 -}
 string : String -> Encoder
 string str =
@@ -178,7 +178,7 @@ string str =
             ]
 
 
-{-| Encode raw 'Bytes' of fixed size
+{-| Encode raw 'Bytes' of fixed size.
 -}
 bytes : Bytes -> Encoder
 bytes bs =
@@ -190,7 +190,7 @@ bytes bs =
 
 
 {-| Create a CBOR `null` value. This can be decoded using `maybe` from the
-Cbor.Decode package
+'Cbor.Decode' module.
 -}
 null : Encoder
 null =
@@ -203,7 +203,7 @@ null =
 -------------------------------------------------------------------------------}
 
 
-{-| Encode floating numbers with half-precision (16-bit)
+{-| Encode floating numbers with half-precision (16-bit).
 -}
 float16 : Float -> Encoder
 float16 n =
@@ -214,7 +214,7 @@ float16 n =
             ]
 
 
-{-| Encode floating numbers with simple precision (32-bit)
+{-| Encode floating numbers with simple precision (32-bit).
 -}
 float32 : Float -> Encoder
 float32 n =
@@ -225,7 +225,7 @@ float32 n =
             ]
 
 
-{-| Encode floating numbers with double precision (64-bit)
+{-| Encode floating numbers with double precision (64-bit).
 -}
 float64 : Float -> Encoder
 float64 n =
@@ -244,7 +244,7 @@ float64 n =
 
 {-| Turn a 'List' into a CBOR array
 
-    E.list E.int [1,2,3] == Bytes <0xTODO>
+    E.list E.int [1,2,3] == Bytes<0x83, 0x01, 0x02, 0x03>
 
 -}
 list : (a -> Encoder) -> List a -> Encoder
@@ -256,7 +256,7 @@ list e xs =
 
 {-| Turn a 2-'Tuple' into a CBOR array
 
-    E.pair E.string E.int ("cbor", 14) == Bytes <0xTODO>
+    E.pair E.string E.int ( "a", 14 ) == Bytes<0x61, 0x61, 0x0E>
 
 -}
 pair : (a -> Encoder) -> (b -> Encoder) -> ( a, b ) -> Encoder
@@ -269,9 +269,8 @@ pair encodeA encodeB ( a, b ) =
 
 {-| Turn a 'Dict' into a CBOR array
 
-    E.dict E.string E.int (Dict.fromList [("a", 1), ("b", 2)])
-        ==
-    Bytes <0xA2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02>
+    E.dict E.string E.int (Dict.fromList [ ( "a", 1 ), ( "b", 2 ) ])
+        == Bytes<0xA2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02>
 
 Note that in CBOR, every data-structure are mostly arrays of items. As a
 consequence, dictionnaries are encoded as a list of pairs (key, value).
@@ -296,8 +295,8 @@ stream. For example:
 
     E.sequence
         [ E.beginBytes
-        , E.bytes <0x01, 0x02>
-        , E.bytes <0x03, 0x04>
+        , E.bytes Bytes<0x01, 0x02>
+        , E.bytes Bytes<0x03, 0x04>
         , E.break
         ]
 
@@ -434,7 +433,7 @@ tag t =
 
 {-| Helper to quickly encode a tagged value
 
-    tagged t encodeA a == sequence [ tag t, encodeA a ]
+    E.tagged t encodeA a == E.sequence [ E.tag t, encodeA a ]
 
 -}
 tagged : Tag -> (a -> Encoder) -> a -> Encoder
