@@ -11,6 +11,7 @@ if: branch = master
 
 stages:
 - Build 🔨
+- Test ☂️
 
 jobs:
   include:
@@ -24,3 +25,10 @@ jobs:
       name: elm-make
       script:
       - elm make --optimize
+
+    - stage: Test ☂️
+      name: elm-coverage
+      script:
+      - npm install -g elm-coverage codecov
+      - elm-coverage -r codecov
+      - codecov -f .coverage/codecov.json
