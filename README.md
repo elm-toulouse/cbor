@@ -3,9 +3,9 @@
 ---
 
 [![](https://img.shields.io/elm-package/v/elm-toulouse/cbor.svg?style=for-the-badge)](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/) 
-[![](https://img.shields.io/travis/elm-toulouse/cbor.svg?style=for-the-badge)](https://travis-ci.org/elm-toulouse/cbor/builds)
-[![](https://img.shields.io/github/license/elm-toulouse/cbor.svg?style=for-the-badge)](https://github.com/elm-toulouse/cbor/blob/master/LICENSE)
-
+[![](https://img.shields.io/travis/elm-toulouse/cbor.svg?style=for-the-badge&label=%F0%9F%94%A8%20Build)](https://travis-ci.org/elm-toulouse/cbor/builds)
+[![](https://img.shields.io/codecov/c/gh/elm-toulouse/cbor.svg?color=e84393&label=%E2%98%82%EF%B8%8F%20Coverage&style=for-the-badge)](https://codecov.io/gh/elm-toulouse/cbor)
+[![](https://img.shields.io/github/license/elm-toulouse/cbor.svg?style=for-the-badge&label=%20%F0%9F%93%84%20License)](https://github.com/elm-toulouse/cbor/blob/master/LICENSE)
 
 [**RFC 7049**](https://tools.ietf.org/html/rfc7049)
 
@@ -82,12 +82,7 @@ decodeAlbum =
         D.int
         (D.list track)
         (D.list link)
-
 ```
-
-## Testing
-
-Code coverage available [here](https://elm-toulouse.github.io/cbor)
 
 ## Changelog
 
