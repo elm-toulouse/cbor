@@ -1,10 +1,11 @@
 module Cbor.Encode exposing
     ( Encoder, encode, sequence
-    , bool, int, float, string, bytes, null
+    , bool, int, float, string, bytes, null, undefined
     , float16, float32, float64
-    , list, dict, pair
+    , list, dict, keyValueMap, pair
     , beginStrings, beginBytes, beginList, beginDict, break
     , tag, tagged
+    , any, raw
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -21,7 +22,7 @@ MessagePack.
 
 ## Primitives
 
-@docs bool, int, float, string, bytes, null
+@docs bool, int, float, string, bytes, null, undefined
 
 
 ## Fancier Primitives
@@ -31,7 +32,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, dict, pair
+@docs list, dict, keyValueMap, pair
 
 
 ## Streaming
@@ -54,6 +55,11 @@ of the string, is known. (The application of this is often referred to as
 
 @docs tag, tagged
 
+
+## Debugging
+
+@docs any, raw
+
 -}
 
 import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
@@ -61,6 +67,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Encode as E
+import Cbor exposing (CborItem(..))
 import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
 
@@ -197,6 +204,14 @@ null =
     Encoder <| E.unsignedInt8 0xF6
 
 
+{-| Create a CBOR `undefined` value. This can be decoded using `maybe` from the
+`Cbor.Decode` module
+-}
+undefined : Encoder
+undefined =
+    Encoder <| E.unsignedInt8 0xF7
+
+
 
 {-------------------------------------------------------------------------------
                               Fancier Primitives
@@ -278,9 +293,17 @@ consequence, dictionnaries are encoded as a list of pairs (key, value).
 -}
 dict : (k -> Encoder) -> (v -> Encoder) -> Dict k v -> Encoder
 dict k v d =
+    keyValueMap k v (Dict.toList d)
+
+
+{-| Turn a (key, value) into a CBOR array. Note that, if keys are `comparable`,
+you should consider using a `Dict` instead.
+-}
+keyValueMap : (k -> Encoder) -> (v -> Encoder) -> List ( k, v ) -> Encoder
+keyValueMap k v xs =
     sequence <|
-        Encoder (unsigned 5 (Dict.size d))
-            :: List.map (pair k v) (Dict.toList d)
+        Encoder (unsigned 5 (List.length xs))
+            :: List.map (pair k v) xs
 
 
 
@@ -365,6 +388,61 @@ beginDict =
 break : Encoder
 break =
     Encoder <| E.unsignedInt8 tBREAK
+
+
+
+{-------------------------------------------------------------------------------
+                                  Debugging
+-------------------------------------------------------------------------------}
+
+
+{-| Encode any generic CBOR item. This is particularly useful when dealing with
+heterogeneous data structures (e.g. tuples).
+
+    E.list E.any [ CborInt 42, CborBool True, CborString "awesome!" ]
+
+-}
+any : CborItem -> Encoder
+any item =
+    case item of
+        CborInt i ->
+            int i
+
+        CborBytes bs ->
+            bytes bs
+
+        CborString str ->
+            string str
+
+        CborList xs ->
+            list any xs
+
+        CborMap xs ->
+            keyValueMap any any xs
+
+        CborTag t ->
+            tag t
+
+        CborBool b ->
+            bool b
+
+        CborFloat f ->
+            float f
+
+        CborNull ->
+            null
+
+        CborUndefined ->
+            undefined
+
+
+{-| Unsafe encoder to inject any arbitrary bytes into the encoding sequence. **Do
+not use** unless you know what you're doing, this may result in invalid CBOR
+encoding!
+-}
+raw : Bytes -> Encoder
+raw =
+    E.bytes >> Encoder
 
 
 

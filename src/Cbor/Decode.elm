@@ -1,9 +1,10 @@
 module Cbor.Decode exposing
     ( Decoder, decode
     , bool, int, float, string, bytes
-    , list, dict, pair, maybe
+    , list, array, dict, keyValueMap, record, pair, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
     , tag, tagged
+    , any, raw
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -25,7 +26,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, dict, pair, maybe
+@docs list, array, dict, keyValueMap, record, pair, maybe
 
 
 ## Mapping
@@ -37,6 +38,11 @@ MessagePack.
 
 @docs tag, tagged
 
+
+## Debugging
+
+@docs any, raw
+
 -}
 
 import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
@@ -44,6 +50,8 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Decode as D
+import Cbor exposing (CborItem(..))
+import Cbor.Encode as CE
 import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
 import Tuple exposing (first)
@@ -199,7 +207,7 @@ string =
                                 |> D.succeed
 
                         else
-                            majorType 3 a
+                            withMajorType 3 a
                                 |> D.andThen unsigned
                                 |> D.andThen D.string
                                 |> D.map (\e -> D.Loop (e :: es))
@@ -235,7 +243,7 @@ bytes =
                                 |> D.succeed
 
                         else
-                            majorType 2 a
+                            withMajorType 2 a
                                 |> D.andThen unsigned
                                 |> D.andThen D.bytes
                                 |> D.map (\e -> D.Loop (e :: es))
@@ -297,6 +305,24 @@ list ((Decoder major payload) as elem) =
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
+{-| Decode an array or said differently, a list with heterogeneous elements
+(with different types).
+
+Since Elm (or statically typed languages in general) does not support hetegorenous arrays, we
+have to resort to records when parsing. This parser works best with the `map`
+family of functions.
+
+For example, to decode an array with 3 elements:
+
+    D.decode (D.array <| D.map3 MyRecord D.bool D.int D.string) (Bytes<0x83 0xF5 0x0E 0x61 0x61>)
+        == Just (MyRecord True 14 "a")
+
+-}
+array : Decoder a -> Decoder a
+array =
+    Decoder (MajorType 4) << always << runDecoder
+
+
 {-| Decode a 2-tuple. This is mostly a helper around a list decoder with 2
 elements, with non-uniform types.
 
@@ -320,10 +346,20 @@ either of finite length or indefinite length (see also _Streaming_ in Cbor.Encod
 -}
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
 dict key value =
+    map Dict.fromList <| keyValueMap key value
+
+
+{-| Decode a CBOR (key, value) map, where keys can be potentially arbitrary CBOR.
+
+If keys are `comparable`, you should prefer `dict` to this primitive.
+
+-}
+keyValueMap : Decoder k -> Decoder v -> Decoder (List ( k, v ))
+keyValueMap key value =
     let
         finite ( n, es ) =
             if n <= 0 then
-                es |> List.reverse |> Dict.fromList |> D.Done |> D.succeed
+                es |> List.reverse |> D.Done |> D.succeed
 
             else
                 D.map2 Tuple.pair (runDecoder key) (runDecoder value)
@@ -334,7 +370,7 @@ dict key value =
                 |> D.andThen
                     (\a ->
                         if a == tBREAK then
-                            es |> List.reverse |> Dict.fromList |> D.Done |> D.succeed
+                            es |> List.reverse |> D.Done |> D.succeed
 
                         else
                             D.map2 Tuple.pair (continueDecoder a key) (runDecoder value)
@@ -348,6 +384,13 @@ dict key value =
 
             else
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
+
+
+{-| Like 'array', but for heterogeneous dict.
+-}
+record : Decoder a -> Decoder a
+record =
+    Decoder (MajorType 5) << always << runDecoder
 
 
 {-| Helpful for dealing with optional fields. Turns `null` into `Nothing`.
@@ -379,6 +422,107 @@ maybe ((Decoder major payload) as decoder) =
 
                     else
                         runMaybe x
+
+
+
+{-------------------------------------------------------------------------------
+                                  Tagging
+-------------------------------------------------------------------------------}
+
+
+{-| This implementation does little interpretation of the tags and is limited to
+only decoding the tag's value. The tag's payload has to be specified as any
+other decoder. So, using the previous example, one could decode a bignum as:
+
+    D.decode (D.tag |> D.andThen (\tag -> D.bytes)) input
+
+You may also use @tagged@ if you as a helper to decode a tagged value, while
+verifying that the tag matches what you expect.
+
+    D.decode (D.tagged PositiveBigNum D.bytes) input
+
+-}
+tag : Decoder Tag
+tag =
+    Decoder (MajorType 6) <|
+        unsigned
+            >> D.map
+                (\t ->
+                    case t of
+                        0 ->
+                            StandardDateTime
+
+                        1 ->
+                            EpochDateTime
+
+                        2 ->
+                            PositiveBigNum
+
+                        3 ->
+                            NegativeBigNum
+
+                        4 ->
+                            DecimalFraction
+
+                        5 ->
+                            BigFloat
+
+                        21 ->
+                            Base64UrlConversion
+
+                        22 ->
+                            Base64Conversion
+
+                        23 ->
+                            Base16Conversion
+
+                        24 ->
+                            Cbor
+
+                        32 ->
+                            Uri
+
+                        33 ->
+                            Base64Url
+
+                        34 ->
+                            Base64
+
+                        35 ->
+                            Regex
+
+                        36 ->
+                            Mime
+
+                        55799 ->
+                            IsCbor
+
+                        _ ->
+                            Unknown t
+                )
+
+
+{-| Decode a value that is tagged with the given 'Tag'. Fails if the value is
+not tagged, or, tag with some other 'Tag'
+
+    D.decode (D.tagged Cbor D.int) Bytes<0xD8, 0x0E> == Just ( Cbor, 14 )
+
+    D.decode (D.tagged Base64 D.int) Bytes<0xD8, 0x0E> == Nothing
+
+    D.decode (D.tagged Cbor D.int) Bytes<0x0E> == Nothing
+
+-}
+tagged : Tag -> Decoder a -> Decoder ( Tag, a )
+tagged t a =
+    tag
+        |> andThen
+            (\t_ ->
+                if t == t_ then
+                    map2 Tuple.pair (succeed t) a
+
+                else
+                    fail
+            )
 
 
 
@@ -547,103 +691,78 @@ map5 fn a b c d e =
 
 
 {-------------------------------------------------------------------------------
-                                  Tagging
+                                  Debugging
 -------------------------------------------------------------------------------}
 
 
-{-| This implementation does little interpretation of the tags and is limited to
-only decoding the tag's value. The tag's payload has to be specified as any
-other decoder. So, using the previous example, one could decode a bignum as:
+{-| Decode remaining bytes as _any_ `CborItem`. This is useful for debugging
+or to inspect some unknown Cbor data.
 
-    D.decode (D.tag |> D.andThen (\tag -> D.bytes)) input
-
-You may also use @tagged@ if you as a helper to decode a tagged value, while
-verifying that the tag matches what you expect.
-
-    D.decode (D.tagged PositiveBigNum D.bytes) input
+    D.decode D.any <| E.encode (E.int 14) == Just (CborUnsignedInteger 14)
 
 -}
-tag : Decoder Tag
-tag =
-    Decoder (MajorType 6) <|
-        unsigned
-            >> D.map
-                (\t ->
-                    case t of
-                        0 ->
-                            StandardDateTime
+any : Decoder CborItem
+any =
+    Decoder MajorTypeInPayload <|
+        \a ->
+            let
+                majorType =
+                    shiftRightBy 5 a
 
-                        1 ->
-                            EpochDateTime
+                payload =
+                    and a 31
 
-                        2 ->
-                            PositiveBigNum
+                apply : Decoder a -> Int -> D.Decoder a
+                apply (Decoder _ decoder) i =
+                    decoder i
+            in
+            if majorType == 0 then
+                D.map CborInt <| apply int a
 
-                        3 ->
-                            NegativeBigNum
+            else if majorType == 1 then
+                D.map CborInt <| apply int a
 
-                        4 ->
-                            DecimalFraction
+            else if majorType == 2 then
+                D.map CborBytes <| apply bytes payload
 
-                        5 ->
-                            BigFloat
+            else if majorType == 3 then
+                D.map CborString <| apply string payload
 
-                        21 ->
-                            Base64UrlConversion
+            else if majorType == 4 then
+                D.map CborList <| apply (list any) payload
 
-                        22 ->
-                            Base64Conversion
+            else if majorType == 5 then
+                D.map CborMap <| apply (keyValueMap any any) payload
 
-                        23 ->
-                            Base16Conversion
+            else if majorType == 6 then
+                D.map CborTag <| apply tag payload
 
-                        24 ->
-                            Cbor
+            else if payload == 20 then
+                D.succeed <| CborBool False
 
-                        32 ->
-                            Uri
+            else if payload == 21 then
+                D.succeed <| CborBool True
 
-                        33 ->
-                            Base64Url
+            else if payload == 22 then
+                D.succeed <| CborNull
 
-                        34 ->
-                            Base64
+            else if payload == 23 then
+                D.succeed <| CborUndefined
 
-                        35 ->
-                            Regex
+            else if List.member payload [ 25, 26, 27 ] then
+                D.map CborFloat <| apply float payload
 
-                        36 ->
-                            Mime
-
-                        55799 ->
-                            IsCbor
-
-                        _ ->
-                            Unknown t
-                )
+            else
+                D.fail
 
 
-{-| Decode a value that is tagged with the given 'Tag'. Fails if the value is
-not tagged, or, tag with some other 'Tag'
-
-    D.decode (D.tagged Cbor D.int) Bytes<0xD8, 0x0E> == Just ( Cbor, 14 )
-
-    D.decode (D.tagged Base64 D.int) Bytes<0xD8, 0x0E> == Nothing
-
-    D.decode (D.tagged Cbor D.int) Bytes<0x0E> == Nothing
-
+{-| Decode the next cbor item as a raw sequence of `Bytes`. Note that this
+primitive is innefficient since it needs to parse the underlying CBOR first, and
+re-encode it into a sequence afterwards. Use for debugging purpose only.
 -}
-tagged : Tag -> Decoder a -> Decoder ( Tag, a )
-tagged t a =
-    tag
-        |> andThen
-            (\t_ ->
-                if t == t_ then
-                    map2 Tuple.pair (succeed t) a
-
-                else
-                    fail
-            )
+raw : Decoder Bytes
+raw =
+    map (CE.any >> CE.encode) any
 
 
 
@@ -692,7 +811,7 @@ runDecoder (Decoder major payload) =
             D.unsignedInt8 |> D.andThen payload
 
         MajorType m ->
-            D.unsignedInt8 |> D.andThen (majorType m) |> D.andThen payload
+            D.unsignedInt8 |> D.andThen (withMajorType m) |> D.andThen payload
 
 
 {-| Continue a decoder with the given 'Int' token parsed outside of the decoder.
@@ -709,7 +828,7 @@ continueDecoder a (Decoder major payload) =
             payload a
 
         MajorType m ->
-            majorType m a |> D.andThen payload
+            withMajorType m a |> D.andThen payload
 
 
 {-| In some cases (like 'andThen' or 'map'), we don't have enough context to
@@ -739,8 +858,8 @@ additional value depends on the major type itself.
                      2⁷ | 2⁶ | 2⁵ | 2⁴ | 2³ | 2² | 2¹ | 2⁰
 
 -}
-majorType : Int -> Int -> D.Decoder Int
-majorType k a =
+withMajorType : Int -> Int -> D.Decoder Int
+withMajorType k a =
     if shiftRightBy 5 a == k then
         D.succeed (and a 31)
 

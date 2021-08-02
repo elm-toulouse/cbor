@@ -9,9 +9,11 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 import Bytes exposing (Bytes, width)
 import Bytes.Decode as D
 import Bytes.Encode as E
+import Cbor exposing (CborItem(..))
 import Cbor.Encode
     exposing
         ( Encoder
+        , any
         , beginBytes
         , beginDict
         , beginList
@@ -29,9 +31,11 @@ import Cbor.Encode
         , list
         , null
         , pair
+        , raw
         , sequence
         , string
         , tagged
+        , undefined
         )
 import Cbor.Tag exposing (Tag(..))
 import Dict
@@ -212,6 +216,8 @@ suite =
                 |> expect [ 0xF4 ]
             , null
                 |> expect [ 0xF6 ]
+            , undefined
+                |> expect [ 0xF7 ]
             , float16 0.0
                 |> expect [ 0xF9, 0x00, 0x00 ]
             , float16 -0.0
@@ -248,6 +254,28 @@ suite =
                 |> expect [ 0xFB, 0x7E, 0x37, 0xE4, 0x3C, 0x88, 0x00, 0x75, 0x9C ]
             , float64 -4.1
                 |> expect [ 0xFB, 0xC0, 0x10, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66 ]
+            ]
+        , describe "any / raw"
+            [ any (CborInt 0)
+                |> expect [ 0x00 ]
+            , any (CborInt -2)
+                |> expect [ 0x21 ]
+            , any (CborBytes <| toBytes [ 0x01, 0x02, 0x03, 0x04 ])
+                |> expect [ 0x44, 0x01, 0x02, 0x03, 0x04 ]
+            , any (CborString "🌈")
+                |> expect [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
+            , any (CborList [ CborInt 1, CborInt 2, CborInt 3 ])
+                |> expect [ 0x83, 0x01, 0x02, 0x03 ]
+            , any (CborMap [ ( CborInt 1, CborInt 2 ), ( CborInt 3, CborInt 4 ) ])
+                |> expect [ 0xA2, 0x01, 0x02, 0x03, 0x04 ]
+            , any (CborTag EpochDateTime)
+                |> expect [ 0xC1 ]
+            , list any [ CborBool False, CborBool True, CborNull, CborUndefined ]
+                |> expect [ 0x84, 0xF4, 0xF5, 0xF6, 0xF7 ]
+            , any (CborFloat 1.1)
+                |> expect [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
+            , raw (toBytes [ 0x82, 0x00, 0x01 ])
+                |> expect [ 0x82, 0x00, 0x01 ]
             ]
         ]
 

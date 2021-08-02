@@ -8,10 +8,13 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as E
+import Cbor exposing (CborItem(..))
 import Cbor.Decode
     exposing
         ( Decoder
         , andThen
+        , any
+        , array
         , bool
         , bytes
         , decode
@@ -27,6 +30,8 @@ import Cbor.Decode
         , map5
         , maybe
         , pair
+        , raw
+        , record
         , string
         , succeed
         , tag
@@ -124,6 +129,8 @@ suite =
                 |> expect (pair int string) (Just ( 14, "42" ))
             , hex [ 0x0E, 0x62, 0x34, 0x32 ]
                 |> expect (pair int int) Nothing
+            , hex [ 0x83, 0x0E, 0xF5 ]
+                |> expect (array <| map2 Tuple.pair int bool) (Just ( 14, True ))
             ]
         , describe "Major Type 5: a map of pairs of data items"
             [ hex [ 0xA0 ]
@@ -274,6 +281,30 @@ suite =
                 |> expect (map4 Map4 int int int int) (Just <| Map4 1 2 3 4)
             , hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ]
                 |> expect (map5 Map5 int int int int int) (Just <| Map5 1 2 3 4 5)
+            ]
+        , describe "any / raw"
+            [ hex [ 0x00 ]
+                |> expect any (Just <| CborInt 0)
+            , hex [ 0x20 ]
+                |> expect any (Just <| CborInt -1)
+            , hex [ 0x41, 0x14 ]
+                |> expect any (Just << CborBytes << Tuple.second <| hex [ 0x14 ])
+            , hex [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
+                |> expect any (Just <| CborString "🌈")
+            , hex [ 0x82, 0x0E, 0x18, 0x2A ]
+                |> expect any (Just <| CborList [ CborInt 14, CborInt 42 ])
+            , hex [ 0xA1, 0x66, 0x70, 0x61, 0x74, 0x61, 0x74, 0x65, 0x0E ]
+                |> expect any (Just <| CborMap [ ( CborString "patate", CborInt 14 ) ])
+            , hex [ 0xD8, 0x2A, 0x0E ]
+                |> expect any (Just <| CborTag <| Unknown 42)
+            , hex [ 0x82, 0xF4, 0xF5 ]
+                |> expect (list any) (Just <| [ CborBool False, CborBool True ])
+            , hex [ 0xF9, 0x55, 0x22 ]
+                |> expect any (Just <| CborFloat 82.125)
+            , hex [ 0x83, 0x61, 0x61, 0xA0, 0x61, 0x62 ]
+                |> expect (array <| map3 (\a _ c -> ( a, c )) string any string) (Just ( "a", "b" ))
+            , hex [ 0x82, 0x00, 0x01 ]
+                |> expect raw (Just <| Tuple.second <| hex [ 0x82, 0x00, 0x01 ])
             ]
         ]
 

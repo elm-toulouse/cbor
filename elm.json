@@ -3,8 +3,9 @@
     "name": "elm-toulouse/cbor",
     "summary": "RFC 7049 - Concise Binary Object Representation (CBOR)",
     "license": "MIT",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "exposed-modules": [
+        "Cbor",
         "Cbor.Encode",
         "Cbor.Decode",
         "Cbor.Tag"
