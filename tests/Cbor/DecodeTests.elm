@@ -12,6 +12,7 @@ import Cbor.Decode
     exposing
         ( Decoder
         , andThen
+        , array
         , bool
         , bytes
         , decode
@@ -27,6 +28,7 @@ import Cbor.Decode
         , map5
         , maybe
         , pair
+        , record
         , string
         , succeed
         , tag
@@ -35,6 +37,7 @@ import Cbor.Decode
 import Cbor.Tag exposing (Tag(..))
 import Dict
 import Expect
+import Hex.Convert exposing (toBytes)
 import Test exposing (Test, describe, test)
 
 
@@ -124,6 +127,8 @@ suite =
                 |> expect (pair int string) (Just ( 14, "42" ))
             , hex [ 0x0E, 0x62, 0x34, 0x32 ]
                 |> expect (pair int int) Nothing
+            , hex [ 0x83, 0x0E, 0xF5 ]
+                |> expect (array <| map2 Tuple.pair int bool) (Just ( 14, True ))
             ]
         , describe "Major Type 5: a map of pairs of data items"
             [ hex [ 0xA0 ]
@@ -275,6 +280,18 @@ suite =
             , hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ]
                 |> expect (map5 Map5 int int int int int) (Just <| Map5 1 2 3 4 5)
             ]
+        , describe "golden"
+            [ "D2844DA20126044870AAA4460B56D17CA0590101A401624652041A611053E0061A60BFE860390103A101A4617681AA626369781D75726E3A757663693A30313A46523A4B4B46334259494759535646235162636F62465262646E016264746A323032312D30332D303162697364434E414D626D616D4F52472D313030303330323135626D706C45552F312F32302F3135323862736402627467693834303533393030366276706A3131313933343930303763646F626A313936322D30352D3331636E616DA462666E6F7468656F756C6520737572206D657262676E6B6A65616E2070696572726563666E746F5448454F554C453C5355523C4D455263676E746B4A45414E3C5049455252456376657265312E302E305840EB4B5342A37817B5D0C6DA80AAF17D364EA080ADA2369658666E2CB8C64BEB6537FE9EA082DAA7081F16ACFCE3339CCAF31CF06711FB0AC4D1811E481AABDC3F"
+                |> expectStr
+                    (tagged (Unknown 18) <|
+                        array <|
+                            map4 CoseEnvelope
+                                bytes
+                                (record <| succeed ())
+                                bytes
+                                bytes
+                    )
+            ]
         ]
 
 
@@ -294,12 +311,39 @@ type alias Map5 =
     { a : Int, b : Int, c : Int, d : Int, e : Int }
 
 
+type alias CoseEnvelope =
+    { protected : Bytes
+    , unprotected : ()
+    , payload : Bytes
+    , signature : Bytes
+    }
+
+
 {-| Alias / Shortcut to write test cases
 -}
 expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
 expect decoder output ( readable, input ) =
     test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
         \_ -> input |> decode decoder |> Expect.equal output
+
+
+{-| Like 'expect' but works from a hex-encoded input string
+-}
+expectStr : Decoder a -> String -> Test
+expectStr decoder input =
+    test input <|
+        \_ ->
+            case toBytes input of
+                Nothing ->
+                    Expect.fail "couldn't decode base16 input"
+
+                Just raw ->
+                    case decode decoder raw of
+                        Nothing ->
+                            Expect.fail "couldn't decode CBOR"
+
+                        Just _ ->
+                            Expect.pass
 
 
 {-| Convert a list of BE unsigned8 to bytes

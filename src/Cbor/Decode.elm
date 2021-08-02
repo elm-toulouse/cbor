@@ -1,7 +1,7 @@
 module Cbor.Decode exposing
     ( Decoder, decode
     , bool, int, float, string, bytes
-    , list, dict, pair, maybe
+    , list, array, dict, record, pair, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
     , tag, tagged
     )
@@ -25,7 +25,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, dict, pair, maybe
+@docs list, array, dict, record, pair, maybe
 
 
 ## Mapping
@@ -297,6 +297,24 @@ list ((Decoder major payload) as elem) =
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
+{-| Decode an array or said differently, a list with heterogeneous elements
+(with different types).
+
+Since Elm (or statically typed languages in general) does not support hetegorenous arrays, we
+have to resort to records when parsing. This parser works best with the `map`
+family of functions.
+
+For example, to decode an array with 3 elements:
+
+    D.decode (D.array <| D.map3 MyRecord D.bool D.int D.string) (Bytes<0x83 0xF5 0x0E 0x61 0x61>)
+        == Just (MyRecord True 14 "a")
+
+-}
+array : Decoder a -> Decoder a
+array =
+    Decoder (MajorType 4) << always << runDecoder
+
+
 {-| Decode a 2-tuple. This is mostly a helper around a list decoder with 2
 elements, with non-uniform types.
 
@@ -348,6 +366,13 @@ dict key value =
 
             else
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
+
+
+{-| Like 'array', but for heterogeneous dict.
+-}
+record : Decoder a -> Decoder a
+record =
+    Decoder (MajorType 5) << always << runDecoder
 
 
 {-| Helpful for dealing with optional fields. Turns `null` into `Nothing`.
