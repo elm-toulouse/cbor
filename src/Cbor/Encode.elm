@@ -5,6 +5,7 @@ module Cbor.Encode exposing
     , list, dict, keyValueMap, pair
     , beginStrings, beginBytes, beginList, beginDict, break
     , tag, tagged
+    , any
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -54,6 +55,11 @@ of the string, is known. (The application of this is often referred to as
 
 @docs tag, tagged
 
+
+## Debugging
+
+@docs any
+
 -}
 
 import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
@@ -61,6 +67,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Encode as E
+import Cbor exposing (CborItem(..))
 import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
 
@@ -381,6 +388,52 @@ beginDict =
 break : Encoder
 break =
     Encoder <| E.unsignedInt8 tBREAK
+
+
+
+{-------------------------------------------------------------------------------
+                                  Debugging
+-------------------------------------------------------------------------------}
+
+
+{-| Encode any generic CBOR item. This is particularly useful when dealing with
+heterogeneous data structures (e.g. tuples).
+
+    E.list E.any [ CborInt 42, CborBool True, CborString "awesome!" ]
+
+-}
+any : CborItem -> Encoder
+any item =
+    case item of
+        CborInt i ->
+            int i
+
+        CborBytes bs ->
+            bytes bs
+
+        CborString str ->
+            string str
+
+        CborList xs ->
+            list any xs
+
+        CborMap xs ->
+            keyValueMap any any xs
+
+        CborTag t ->
+            tag t
+
+        CborBool b ->
+            bool b
+
+        CborFloat f ->
+            float f
+
+        CborNull ->
+            null
+
+        CborUndefined ->
+            undefined
 
 
 

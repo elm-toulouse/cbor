@@ -8,10 +8,12 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as E
+import Cbor exposing (CborItem(..))
 import Cbor.Decode
     exposing
         ( Decoder
         , andThen
+        , any
         , array
         , bool
         , bytes
@@ -280,17 +282,27 @@ suite =
             , hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ]
                 |> expect (map5 Map5 int int int int int) (Just <| Map5 1 2 3 4 5)
             ]
-        , describe "golden"
-            [ "D2844DA20126044870AAA4460B56D17CA0590101A401624652041A611053E0061A60BFE860390103A101A4617681AA626369781D75726E3A757663693A30313A46523A4B4B46334259494759535646235162636F62465262646E016264746A323032312D30332D303162697364434E414D626D616D4F52472D313030303330323135626D706C45552F312F32302F3135323862736402627467693834303533393030366276706A3131313933343930303763646F626A313936322D30352D3331636E616DA462666E6F7468656F756C6520737572206D657262676E6B6A65616E2070696572726563666E746F5448454F554C453C5355523C4D455263676E746B4A45414E3C5049455252456376657265312E302E305840EB4B5342A37817B5D0C6DA80AAF17D364EA080ADA2369658666E2CB8C64BEB6537FE9EA082DAA7081F16ACFCE3339CCAF31CF06711FB0AC4D1811E481AABDC3F"
-                |> expectStr
-                    (tagged (Unknown 18) <|
-                        array <|
-                            map4 CoseEnvelope
-                                bytes
-                                (record <| succeed ())
-                                bytes
-                                bytes
-                    )
+        , describe "any"
+            [ hex [ 0x00 ]
+                |> expect any (Just <| CborInt 0)
+            , hex [ 0x20 ]
+                |> expect any (Just <| CborInt -1)
+            , hex [ 0x41, 0x14 ]
+                |> expect any (Just << CborBytes << Tuple.second <| hex [ 0x14 ])
+            , hex [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
+                |> expect any (Just <| CborString "🌈")
+            , hex [ 0x82, 0x0E, 0x18, 0x2A ]
+                |> expect any (Just <| CborList [ CborInt 14, CborInt 42 ])
+            , hex [ 0xA1, 0x66, 0x70, 0x61, 0x74, 0x61, 0x74, 0x65, 0x0E ]
+                |> expect any (Just <| CborMap [ ( CborString "patate", CborInt 14 ) ])
+            , hex [ 0xD8, 0x2A, 0x0E ]
+                |> expect any (Just <| CborTag <| Unknown 42)
+            , hex [ 0x82, 0xF4, 0xF5 ]
+                |> expect (list any) (Just <| [ CborBool False, CborBool True ])
+            , hex [ 0xF9, 0x55, 0x22 ]
+                |> expect any (Just <| CborFloat 82.125)
+            , hex [ 0x83, 0x61, 0x61, 0xA0, 0x61, 0x62 ]
+                |> expect (array <| map3 (\a _ c -> ( a, c )) string any string) (Just ( "a", "b" ))
             ]
         ]
 
@@ -311,39 +323,12 @@ type alias Map5 =
     { a : Int, b : Int, c : Int, d : Int, e : Int }
 
 
-type alias CoseEnvelope =
-    { protected : Bytes
-    , unprotected : ()
-    , payload : Bytes
-    , signature : Bytes
-    }
-
-
 {-| Alias / Shortcut to write test cases
 -}
 expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
 expect decoder output ( readable, input ) =
     test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
         \_ -> input |> decode decoder |> Expect.equal output
-
-
-{-| Like 'expect' but works from a hex-encoded input string
--}
-expectStr : Decoder a -> String -> Test
-expectStr decoder input =
-    test input <|
-        \_ ->
-            case toBytes input of
-                Nothing ->
-                    Expect.fail "couldn't decode base16 input"
-
-                Just raw ->
-                    case decode decoder raw of
-                        Nothing ->
-                            Expect.fail "couldn't decode CBOR"
-
-                        Just _ ->
-                            Expect.pass
 
 
 {-| Convert a list of BE unsigned8 to bytes
