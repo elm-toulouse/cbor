@@ -40,7 +40,6 @@ import Cbor.Decode
 import Cbor.Tag exposing (Tag(..))
 import Dict
 import Expect
-import Hex.Convert exposing (toBytes)
 import Test exposing (Test, describe, test)
 
 
