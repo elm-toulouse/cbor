@@ -1,7 +1,7 @@
 module Cbor.Decode exposing
     ( Decoder, decode
     , bool, int, float, string, bytes
-    , list, array, dict, record, pair, maybe
+    , list, array, dict, keyValueMap, record, pair, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
     , tag, tagged
     )
@@ -25,7 +25,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, array, dict, record, pair, maybe
+@docs list, array, dict, keyValueMap, record, pair, maybe
 
 
 ## Mapping
@@ -338,10 +338,20 @@ either of finite length or indefinite length (see also _Streaming_ in Cbor.Encod
 -}
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
 dict key value =
+    map Dict.fromList <| keyValueMap key value
+
+
+{-| Decode a CBOR (key, value) map, where keys can be potentially arbitrary CBOR.
+
+If keys are `comparable`, you should prefer `dict` to this primitive.
+
+-}
+keyValueMap : Decoder k -> Decoder v -> Decoder (List ( k, v ))
+keyValueMap key value =
     let
         finite ( n, es ) =
             if n <= 0 then
-                es |> List.reverse |> Dict.fromList |> D.Done |> D.succeed
+                es |> List.reverse |> D.Done |> D.succeed
 
             else
                 D.map2 Tuple.pair (runDecoder key) (runDecoder value)
@@ -352,7 +362,7 @@ dict key value =
                 |> D.andThen
                     (\a ->
                         if a == tBREAK then
-                            es |> List.reverse |> Dict.fromList |> D.Done |> D.succeed
+                            es |> List.reverse |> D.Done |> D.succeed
 
                         else
                             D.map2 Tuple.pair (continueDecoder a key) (runDecoder value)
@@ -404,6 +414,107 @@ maybe ((Decoder major payload) as decoder) =
 
                     else
                         runMaybe x
+
+
+
+{-------------------------------------------------------------------------------
+                                  Tagging
+-------------------------------------------------------------------------------}
+
+
+{-| This implementation does little interpretation of the tags and is limited to
+only decoding the tag's value. The tag's payload has to be specified as any
+other decoder. So, using the previous example, one could decode a bignum as:
+
+    D.decode (D.tag |> D.andThen (\tag -> D.bytes)) input
+
+You may also use @tagged@ if you as a helper to decode a tagged value, while
+verifying that the tag matches what you expect.
+
+    D.decode (D.tagged PositiveBigNum D.bytes) input
+
+-}
+tag : Decoder Tag
+tag =
+    Decoder (MajorType 6) <|
+        unsigned
+            >> D.map
+                (\t ->
+                    case t of
+                        0 ->
+                            StandardDateTime
+
+                        1 ->
+                            EpochDateTime
+
+                        2 ->
+                            PositiveBigNum
+
+                        3 ->
+                            NegativeBigNum
+
+                        4 ->
+                            DecimalFraction
+
+                        5 ->
+                            BigFloat
+
+                        21 ->
+                            Base64UrlConversion
+
+                        22 ->
+                            Base64Conversion
+
+                        23 ->
+                            Base16Conversion
+
+                        24 ->
+                            Cbor
+
+                        32 ->
+                            Uri
+
+                        33 ->
+                            Base64Url
+
+                        34 ->
+                            Base64
+
+                        35 ->
+                            Regex
+
+                        36 ->
+                            Mime
+
+                        55799 ->
+                            IsCbor
+
+                        _ ->
+                            Unknown t
+                )
+
+
+{-| Decode a value that is tagged with the given 'Tag'. Fails if the value is
+not tagged, or, tag with some other 'Tag'
+
+    D.decode (D.tagged Cbor D.int) Bytes<0xD8, 0x0E> == Just ( Cbor, 14 )
+
+    D.decode (D.tagged Base64 D.int) Bytes<0xD8, 0x0E> == Nothing
+
+    D.decode (D.tagged Cbor D.int) Bytes<0x0E> == Nothing
+
+-}
+tagged : Tag -> Decoder a -> Decoder ( Tag, a )
+tagged t a =
+    tag
+        |> andThen
+            (\t_ ->
+                if t == t_ then
+                    map2 Tuple.pair (succeed t) a
+
+                else
+                    fail
+            )
 
 
 

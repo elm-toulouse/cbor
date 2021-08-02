@@ -1,8 +1,8 @@
 module Cbor.Encode exposing
     ( Encoder, encode, sequence
-    , bool, int, float, string, bytes, null
+    , bool, int, float, string, bytes, null, undefined
     , float16, float32, float64
-    , list, dict, pair
+    , list, dict, keyValueMap, pair
     , beginStrings, beginBytes, beginList, beginDict, break
     , tag, tagged
     )
@@ -21,7 +21,7 @@ MessagePack.
 
 ## Primitives
 
-@docs bool, int, float, string, bytes, null
+@docs bool, int, float, string, bytes, null, undefined
 
 
 ## Fancier Primitives
@@ -31,7 +31,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, dict, pair
+@docs list, dict, keyValueMap, pair
 
 
 ## Streaming
@@ -197,6 +197,14 @@ null =
     Encoder <| E.unsignedInt8 0xF6
 
 
+{-| Create a CBOR `undefined` value. This can be decoded using `maybe` from the
+`Cbor.Decode` module
+-}
+undefined : Encoder
+undefined =
+    Encoder <| E.unsignedInt8 0xF7
+
+
 
 {-------------------------------------------------------------------------------
                               Fancier Primitives
@@ -278,9 +286,17 @@ consequence, dictionnaries are encoded as a list of pairs (key, value).
 -}
 dict : (k -> Encoder) -> (v -> Encoder) -> Dict k v -> Encoder
 dict k v d =
+    keyValueMap k v (Dict.toList d)
+
+
+{-| Turn a (key, value) into a CBOR array. Note that, if keys are `comparable`,
+you should consider using a `Dict` instead.
+-}
+keyValueMap : (k -> Encoder) -> (v -> Encoder) -> List ( k, v ) -> Encoder
+keyValueMap k v xs =
     sequence <|
-        Encoder (unsigned 5 (Dict.size d))
-            :: List.map (pair k v) (Dict.toList d)
+        Encoder (unsigned 5 (List.length xs))
+            :: List.map (pair k v) xs
 
 
 

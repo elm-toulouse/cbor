@@ -32,6 +32,7 @@ import Cbor.Encode
         , sequence
         , string
         , tagged
+        , undefined
         )
 import Cbor.Tag exposing (Tag(..))
 import Dict
@@ -212,6 +213,8 @@ suite =
                 |> expect [ 0xF4 ]
             , null
                 |> expect [ 0xF6 ]
+            , undefined
+                |> expect [ 0xF7 ]
             , float16 0.0
                 |> expect [ 0xF9, 0x00, 0x00 ]
             , float16 -0.0
