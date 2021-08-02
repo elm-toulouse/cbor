@@ -5,7 +5,7 @@ module Cbor.Encode exposing
     , list, dict, keyValueMap, pair
     , beginStrings, beginBytes, beginList, beginDict, break
     , tag, tagged
-    , any
+    , any, raw
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -58,7 +58,7 @@ of the string, is known. (The application of this is often referred to as
 
 ## Debugging
 
-@docs any
+@docs any, raw
 
 -}
 
@@ -434,6 +434,15 @@ any item =
 
         CborUndefined ->
             undefined
+
+
+{-| Unsafe encoder to inject any arbitrary bytes into the encoding sequence. **Do
+not use** unless you know what you're doing, this may result in invalid CBOR
+encoding!
+-}
+raw : Bytes -> Encoder
+raw =
+    E.bytes >> Encoder
 
 
 

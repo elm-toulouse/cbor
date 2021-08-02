@@ -31,6 +31,7 @@ import Cbor.Encode
         , list
         , null
         , pair
+        , raw
         , sequence
         , string
         , tagged
@@ -254,7 +255,7 @@ suite =
             , float64 -4.1
                 |> expect [ 0xFB, 0xC0, 0x10, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66 ]
             ]
-        , describe "any"
+        , describe "any / raw"
             [ any (CborInt 0)
                 |> expect [ 0x00 ]
             , any (CborInt -2)
@@ -273,6 +274,8 @@ suite =
                 |> expect [ 0x84, 0xF4, 0xF5, 0xF6, 0xF7 ]
             , any (CborFloat 1.1)
                 |> expect [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
+            , raw (toBytes [ 0x82, 0x00, 0x01 ])
+                |> expect [ 0x82, 0x00, 0x01 ]
             ]
         ]
 

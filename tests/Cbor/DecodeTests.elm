@@ -30,6 +30,7 @@ import Cbor.Decode
         , map5
         , maybe
         , pair
+        , raw
         , record
         , string
         , succeed
@@ -282,7 +283,7 @@ suite =
             , hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ]
                 |> expect (map5 Map5 int int int int int) (Just <| Map5 1 2 3 4 5)
             ]
-        , describe "any"
+        , describe "any / raw"
             [ hex [ 0x00 ]
                 |> expect any (Just <| CborInt 0)
             , hex [ 0x20 ]
@@ -303,6 +304,8 @@ suite =
                 |> expect any (Just <| CborFloat 82.125)
             , hex [ 0x83, 0x61, 0x61, 0xA0, 0x61, 0x62 ]
                 |> expect (array <| map3 (\a _ c -> ( a, c )) string any string) (Just ( "a", "b" ))
+            , hex [ 0x82, 0x00, 0x01 ]
+                |> expect raw (Just <| Tuple.second <| hex [ 0x82, 0x00, 0x01 ])
             ]
         ]
 

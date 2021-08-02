@@ -4,7 +4,7 @@ module Cbor.Decode exposing
     , list, array, dict, keyValueMap, record, pair, maybe
     , succeed, fail, andThen, map, map2, map3, map4, map5
     , tag, tagged
-    , any
+    , any, raw
     )
 
 {-| The Concise Binary Object Representation (CBOR) is a data format whose design
@@ -41,7 +41,7 @@ MessagePack.
 
 ## Debugging
 
-@docs any
+@docs any, raw
 
 -}
 
@@ -51,6 +51,7 @@ import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Decode as D
 import Cbor exposing (CborItem(..))
+import Cbor.Encode as CE
 import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
 import Tuple exposing (first)
@@ -753,6 +754,15 @@ any =
 
             else
                 D.fail
+
+
+{-| Decode the next cbor item as a raw sequence of `Bytes`. Note that this
+primitive is innefficient since it needs to parse the underlying CBOR first, and
+re-encode it into a sequence afterwards. Use for debugging purpose only.
+-}
+raw : Decoder Bytes
+raw =
+    map (CE.any >> CE.encode) any
 
 
 
