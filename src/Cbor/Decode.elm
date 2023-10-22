@@ -3,7 +3,8 @@ module Cbor.Decode exposing
     , bool, int, float, string, bytes
     , list, length, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem
-    , succeed, fail, andThen, map, map2, map3, map4, map5
+    , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5
+    , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
     , any, raw
     )
@@ -37,7 +38,12 @@ MessagePack.
 
 ## Mapping
 
-@docs succeed, fail, andThen, map, map2, map3, map4, map5
+@docs succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5
+
+
+## Streaming
+
+@docs beginString, beginBytes, beginList, beginDict, break
 
 
 ## Tagging
@@ -82,8 +88,8 @@ decode d =
     D.decode (runDecoder d)
 
 
-{-| Helpful for dealing with optional items. Turns [`null`](../Cbor-Encode#null)
-or [`undefined`](../Cbor-Encode#undefined) into [`Nothing`](https://package.elm-lang.org/packages/elm/core/latest/Maybe#Maybe).
+{-| Helpful for dealing with optional items. Turns [`null`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Encode#null)
+or [`undefined`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Encode#undefined) into [`Nothing`](https://package.elm-lang.org/packages/elm/core/latest/Maybe#Maybe).
 
     D.decode (D.maybe D.bool) Bytes<0xF6> == Just Nothing
 
@@ -204,7 +210,7 @@ float =
 
 {-| Decode a bunch UTF-8 bytes into a [`String`](https://package.elm-lang.org/packages/elm/core/latest/String#String).
 In case of streaming, all string chunks are decoded at once and concatenated as if they were
-one single string. See also [`Cbor.Encode.beginString`](../Cbor-Encode#beginString).
+one single string. See also [`Cbor.Encode.beginString`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Encode#beginString).
 -}
 string : Decoder String
 string =
@@ -238,7 +244,7 @@ string =
 
 {-| Decode a bunch bytes into [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes).
 In case of streaming, all byte chunks are decoded at once and concatenated as if they were
-one single byte string. See also [`Cbor.Encode.beginBytes`](../Cbor-Encode#beginBytes).
+one single byte string. See also [`Cbor.Encode.beginBytes`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Encode#beginBytes).
 -}
 bytes : Decoder Bytes
 bytes =
@@ -322,7 +328,13 @@ list ((Decoder major payload) as inner) =
 -}
 length : Decoder Int
 length =
-    Decoder (MajorType 4) D.succeed
+    Decoder (MajorType 4) <|
+        \t ->
+            if t == tBEGIN then
+                D.fail
+
+            else
+                unsigned t
 
 
 {-| Decode an CBOR map of pairs of data-items into an Elm [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict).
@@ -344,7 +356,13 @@ dict key value =
 -}
 size : Decoder Int
 size =
-    Decoder (MajorType 5) D.succeed
+    Decoder (MajorType 5) <|
+        \t ->
+            if t == tBEGIN then
+                D.fail
+
+            else
+                unsigned t
 
 
 {-| Decode a CBOR map as an associative list, where keys and values can be arbitrary CBOR.
@@ -394,11 +412,16 @@ associativeList key value =
 -}
 type Step k result
     = Step
-        { size : Int
+        { size : Size
         , steps : result
         , decodeKey : Decoder k
         , k : Maybe k
         }
+
+
+type Size
+    = Definite Int
+    | Indefinite Bool
 
 
 {-| Decode a (definite) CBOR map into a record. Keys in the map can be arbitrary
@@ -431,18 +454,36 @@ CBOR but are expected to be homogeneous across the record.
 -}
 record : Decoder k -> steps -> (Step k steps -> Decoder (Step k record)) -> Decoder record
 record decodeKey steps decodeRecord =
-    size
-        |> andThen
-            (\sz ->
-                decodeRecord <|
-                    Step
-                        { k = Nothing
-                        , steps = steps
-                        , size = sz
-                        , decodeKey =
-                            decodeKey
-                        }
-            )
+    Decoder (MajorType 5)
+        (\tFirst ->
+            -- Here follows an indefinite structure.
+            if tFirst == tBEGIN then
+                Step
+                    { k = Nothing
+                    , steps = steps
+                    , size = Indefinite False
+                    , decodeKey = decodeKey
+                    }
+                    |> decodeRecord
+                    |> runDecoder
+
+            else
+                -- Here follows a definite structure; before we continue
+                -- decoding it, we must first decode the rest of the size which
+                -- may be encoded over multiple bytes.
+                unsigned tFirst
+                    |> D.andThen
+                        (\sz ->
+                            Step
+                                { k = Nothing
+                                , steps = steps
+                                , size = Definite sz
+                                , decodeKey = decodeKey
+                                }
+                                |> decodeRecord
+                                |> runDecoder
+                        )
+        )
         |> map (\(Step st) -> st.steps)
 
 
@@ -465,7 +506,14 @@ field want v =
     andThen <|
         \(Step st) ->
             let
-                k =
+                decodeField got =
+                    if want /= got then
+                        fail
+
+                    else
+                        map (step (Step st) Nothing) v
+
+                decodeKey =
                     case st.k of
                         Nothing ->
                             st.decodeKey
@@ -473,15 +521,7 @@ field want v =
                         Just got ->
                             succeed got
             in
-            k
-                |> andThen
-                    (\got ->
-                        if want /= got then
-                            fail
-
-                        else
-                            map (step (Step st) Nothing) v
-                    )
+            decodeKey |> andThen decodeField
 
 
 {-| Decode an optional field of record and step through the decoder. This
@@ -493,30 +533,73 @@ See [`record`](#record) for detail about usage.
 -}
 optionalField : k -> Decoder field -> Decoder (Step k (Maybe field -> steps)) -> Decoder (Step k steps)
 optionalField want v =
+    -- Optional fields are ... complicated. There are two issues:
+    --
+    -- 1. We need to the decode the next key, but it might not be
+    --    the key we are waiting for. In such case, we mustn't fail
+    --    but simply continue to the next field and pass in the key
+    --    that we have already decoded.
+    --
+    -- 2. In the case of indefinite records, the next element might
+    --    actually not be a field, but might be a break marker. If
+    --    that's the case then any remaining optional field is just
+    --    'Nothing' and we must not decode any new byte. We use the
+    --    boolean in `Indefinite` to remember that.
+    --
+    -- 3. In the case of definite records, we mustn't attempt to decode
+    --    the next byte because there might not be any! Which is why we
+    --    keep track of the number of fields that still need to be
+    --    decoded. When this is 0, we know we have decoded all fields
+    --    and any new optional field is `Nothing`.
     andThen <|
         \(Step st) ->
             let
-                k =
+                decodeField got =
+                    if want /= got then
+                        step (Step st) (Just got) Nothing |> succeed
+
+                    else
+                        v |> map (Just >> step (Step st) Nothing)
+
+                ignoreField =
+                    step (Step st) st.k Nothing
+            in
+            case st.size of
+                Indefinite done ->
                     case st.k of
                         Nothing ->
-                            st.decodeKey
-
-                        Just got ->
-                            succeed got
-            in
-            if st.size <= 0 then
-                step (Step st) st.k Nothing |> succeed
-
-            else
-                k
-                    |> andThen
-                        (\got ->
-                            if want /= got then
-                                step (Step st) (Just got) Nothing |> succeed
+                            if done then
+                                succeed ignoreField
 
                             else
-                                v |> map (Just >> step (Step st) Nothing)
-                        )
+                                Decoder MajorTypeInPayload <|
+                                    \t ->
+                                        if t == tBREAK then
+                                            case ignoreField of
+                                                Step { k, steps, decodeKey } ->
+                                                    D.succeed <| Step { k = k, steps = steps, size = Indefinite True, decodeKey = decodeKey }
+
+                                        else
+                                            st.decodeKey |> andThen decodeField |> continueDecoder t
+
+                        Just got ->
+                            decodeField got
+
+                Definite sz ->
+                    let
+                        decodeKey =
+                            case st.k of
+                                Nothing ->
+                                    st.decodeKey
+
+                                Just got ->
+                                    succeed got
+                    in
+                    if sz <= 0 then
+                        succeed ignoreField
+
+                    else
+                        decodeKey |> andThen decodeField
 
 
 {-| Decode a (definite) CBOR array into a record / tuple.
@@ -536,18 +619,45 @@ optionalField want v =
 -}
 tuple : steps -> (Step Never steps -> Decoder (Step Never tuple)) -> Decoder tuple
 tuple steps decodeTuple =
-    length
-        |> andThen
-            (\sz ->
-                decodeTuple <|
-                    Step
-                        { k = Nothing
-                        , steps = steps
-                        , size = sz
-                        , decodeKey = fail
-                        }
-            )
-        |> map (\(Step st) -> st.steps)
+    Decoder (MajorType 4) <|
+        \tFirst ->
+            if tFirst == tBEGIN then
+                Step
+                    { k = Nothing
+                    , steps = steps
+                    , size = Indefinite False
+                    , decodeKey = fail
+                    }
+                    |> decodeTuple
+                    |> andThen
+                        (\(Step st) ->
+                            -- When decoding indefinite-length *tuples*, we
+                            -- never decode the final break byte. So we must
+                            -- ensure to do it here.
+                            Decoder MajorTypeInPayload <|
+                                \tLast ->
+                                    if tLast == tBREAK then
+                                        D.succeed st.steps
+
+                                    else
+                                        D.fail
+                        )
+                    |> runDecoder
+
+            else
+                unsigned tFirst
+                    |> D.andThen
+                        (\sz ->
+                            Step
+                                { k = Nothing
+                                , steps = steps
+                                , size = Definite sz
+                                , decodeKey = fail
+                                }
+                                |> decodeTuple
+                                |> runDecoder
+                        )
+                    |> D.map (\(Step st) -> st.steps)
 
 
 {-| A helper that makes writing record decoders nicer. It is equivalent to
@@ -576,28 +686,33 @@ step (Step st) k next =
     Step
         { k = k
         , steps = st.steps next
+        , decodeKey = st.decodeKey
         , size =
-            -- NOTE: We need to count the total size to know whether we have any
-            -- element left to parse. This is because a record may contain
-            -- optional fields and we don't want to even try to parse the next
-            -- key if we have parsed all the required fields.
-            --
-            -- This is only possible because the size of the record is declared
-            -- next to the major type; so before we begin parsing any field we
-            -- know how many we expect.
-            st.size
-                - (case k of
-                    -- k == Nothing, means that we have consumed the next field.
-                    Nothing ->
-                        1
+            case st.size of
+                Indefinite done ->
+                    Indefinite done
 
-                    -- k == Just _, means that we haven't consumed the field and
-                    -- we are holding on the key. Waiting for a matching field.
-                    Just _ ->
-                        0
-                  )
-        , decodeKey =
-            st.decodeKey
+                Definite sz ->
+                    -- NOTE: We need to count the total size to know whether we have any
+                    -- element left to parse. This is because a record may contain
+                    -- optional fields and we don't want to even try to parse the next
+                    -- key if we have parsed all the required fields.
+                    --
+                    -- This is only possible because the size of the record is declared
+                    -- next to the major type; so before we begin parsing any field we
+                    -- know how many we expect.
+                    Definite <|
+                        sz
+                            - (case k of
+                                -- k == Nothing, means that we have consumed the next field.
+                                Nothing ->
+                                    1
+
+                                -- k == Just _, means that we haven't consumed the field and
+                                -- we are holding on the key. Waiting for a matching field.
+                                Just _ ->
+                                    0
+                              )
         }
 
 
@@ -679,8 +794,8 @@ tag =
                 )
 
 
-{-| Decode a value that is tagged with the given [`Tag`](../Cbor-Tag#Tag).
-Fails if the value is not tagged, or, tagged with some other [`Tag`](../Cbor-Tag#Tag)
+{-| Decode a value that is tagged with the given [`Tag`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Tag#Tag).
+Fails if the value is not tagged, or, tagged with some other [`Tag`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Tag#Tag)
 
     D.decode (D.tagged Cbor D.int) Bytes<0xD8, 0x0E> == Just ( Cbor, 14 )
 
@@ -754,6 +869,30 @@ This is useful when a ['Decoder'](#Decoder) depends on a value held by another d
 andThen : (a -> Decoder b) -> Decoder a -> Decoder b
 andThen fn a =
     Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.andThen (fn >> runDecoder))
+
+
+{-| Decode something and then another thing, but only continue with the second
+result.
+
+    ignoreThen a ignored =
+        ignored |> andThen (always a)
+
+-}
+ignoreThen : Decoder a -> Decoder ignored -> Decoder a
+ignoreThen a ignored =
+    ignored |> andThen (always a)
+
+
+{-| Decode something and then another thing, but only continue with the first
+result.
+
+    thenIgnore ignored a =
+        a |> andThen (\result -> map (always result) ignored)
+
+-}
+thenIgnore : Decoder ignored -> Decoder a -> Decoder a
+thenIgnore ignored a =
+    a |> andThen (\result -> map (always result) ignored)
 
 
 {-| Transform a decoder. For example, maybe you just want to know the length of a string:
@@ -866,11 +1005,100 @@ map5 fn a b c d e =
 
 
 {-------------------------------------------------------------------------------
+                                 Streaming
+-------------------------------------------------------------------------------}
+
+
+{-| Decode the beginning of an indefinite [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes) sequence.
+
+This is useful in combination with [`ignoreThen`](#ignoreThen) and
+[`andThen`](#andThen) to manually decode sequences of byte strings.
+
+-}
+beginBytes : Decoder ()
+beginBytes =
+    Decoder (MajorType 2) <|
+        \t ->
+            if t == tBEGIN then
+                D.succeed ()
+
+            else
+                D.fail
+
+
+{-| Decode the beginning of an indefinite [`String`](https://package.elm-lang.org/packages/elm/core/latest/String#String) sequence.
+
+This is useful in combination with [`ignoreThen`](#ignoreThen) and
+[`andThen`](#andThen) to manually decode sequences of text strings.
+
+-}
+beginString : Decoder ()
+beginString =
+    Decoder (MajorType 3) <|
+        \t ->
+            if t == tBEGIN then
+                D.succeed ()
+
+            else
+                D.fail
+
+
+{-| Decode the beginning of an indefinite `List`.
+
+This is useful in combination with [`ignoreThen`](#ignoreThen) and
+[`andThen`](#andThen) to manually decode indefinite `List`.
+
+-}
+beginList : Decoder ()
+beginList =
+    Decoder (MajorType 4) <|
+        \t ->
+            if t == tBEGIN then
+                D.succeed ()
+
+            else
+                D.fail
+
+
+{-| Decode the beginning of an indefinite [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict).
+
+This is useful in combination with [`ignoreThen`](#ignoreThen) and
+[`andThen`](#andThen) to manually decode indefinite [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict).
+
+-}
+beginDict : Decoder ()
+beginDict =
+    Decoder (MajorType 5) <|
+        \t ->
+            if t == tBEGIN then
+                D.succeed ()
+
+            else
+                D.fail
+
+
+{-| Decode a termination of an indefinite structure. See
+[`beginString`](#beginString), [`beginBytes`](#beginBytes),
+[`beginList`](#beginList), [`beginDict`](#beginDict) for detail about usage.
+-}
+break : Decoder ()
+break =
+    Decoder MajorTypeInPayload <|
+        \t ->
+            if t == tBREAK then
+                D.succeed ()
+
+            else
+                D.fail
+
+
+
+{-------------------------------------------------------------------------------
                                   Debugging
 -------------------------------------------------------------------------------}
 
 
-{-| Decode remaining bytes as _any_ [`CborItem`](../Cbor#CborItem). This is useful
+{-| Decode remaining bytes as _any_ [`CborItem`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor#CborItem). This is useful
 for debugging or to inspect some unknown Cbor data.
 
     D.decode D.any <| E.encode (E.int 14) == Just (CborUnsignedInteger 14)
@@ -992,7 +1220,7 @@ runDecoder (Decoder major payload) =
 
 {-| Continue a decoder with the given 'Int' token parsed outside of the decoder.
 This happens for indefinite data-structure where we have to first peak at the
-next token before knowing which parser hsa to be ran (if any).
+next token before knowing which parser has to be ran (if any).
 -}
 continueDecoder : Int -> Decoder a -> D.Decoder a
 continueDecoder a (Decoder major payload) =

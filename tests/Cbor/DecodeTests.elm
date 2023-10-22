@@ -14,7 +14,12 @@ import Cbor.Decode
         ( Decoder
         , andThen
         , any
+        , beginBytes
+        , beginDict
+        , beginList
+        , beginString
         , bool
+        , break
         , bytes
         , decode
         , dict
@@ -24,7 +29,9 @@ import Cbor.Decode
         , field
         , fields
         , float
+        , ignoreThen
         , int
+        , length
         , list
         , map
         , map2
@@ -35,10 +42,12 @@ import Cbor.Decode
         , optionalField
         , raw
         , record
+        , size
         , string
         , succeed
         , tag
         , tagged
+        , thenIgnore
         , tuple
         )
 import Cbor.Tag exposing (Tag(..))
@@ -129,6 +138,14 @@ suite =
                 |> expect (list int) (Just [ 1, 2, 3, 4 ])
             , hex [ 0x9F, 0x81, 0x01, 0x9F, 0x02, 0x02, 0xFF, 0x82, 0x03, 0x03, 0xFF ]
                 |> expect (list (list int)) (Just [ [ 1 ], [ 2, 2 ], [ 3, 3 ] ])
+            , hex [ 0x80 ]
+                |> expect length (Just 0)
+            , hex [ 0x82 ]
+                |> expect length (Just 2)
+            , hex [ 0x98, 0x1A ]
+                |> expect length (Just 26)
+            , hex [ 0x9F ]
+                |> expect length Nothing
             ]
         , describe "Major Type 5: a map of pairs of data items"
             [ hex [ 0xA0 ]
@@ -165,6 +182,14 @@ suite =
                     (Just <|
                         Dict.fromList [ ( "a", [ Dict.fromList [ ( "b", 14 ) ] ] ) ]
                     )
+            , hex [ 0xA0 ]
+                |> expect size (Just 0)
+            , hex [ 0xA2 ]
+                |> expect size (Just 2)
+            , hex [ 0xB8, 0x1A ]
+                |> expect size (Just 26)
+            , hex [ 0xBF ]
+                |> expect size Nothing
             ]
         , describe "Major type 6: tags"
             [ hex
@@ -279,6 +304,69 @@ suite =
                 |> expect (map4 Map4 int int int int) (Just <| Map4 1 2 3 4)
             , hex [ 0x01, 0x02, 0x03, 0x04, 0x05 ]
                 |> expect (map5 Map5 int int int int int) (Just <| Map5 1 2 3 4 5)
+            , hex [ 0x5F, 0x41, 0x01, 0x41, 0x02, 0xFF ]
+                |> expect
+                    (beginBytes
+                        |> ignoreThen (map2 Tuple.pair bytes bytes)
+                        |> thenIgnore break
+                    )
+                    (Just ( Tuple.second <| hex [ 0x01 ], Tuple.second <| hex [ 0x02 ] ))
+            , hex [ 0x42, 0x41, 0x01, 0x41, 0x02 ]
+                |> expect
+                    (beginBytes
+                        |> ignoreThen (map2 Tuple.pair bytes bytes)
+                        |> thenIgnore break
+                    )
+                    Nothing
+            , hex [ 0x5F, 0x41, 0x01, 0x41, 0x02, 0x00 ]
+                |> expect
+                    (beginBytes
+                        |> ignoreThen (map2 Tuple.pair bytes bytes)
+                        |> thenIgnore break
+                    )
+                    Nothing
+            , hex [ 0x7F, 0x61, 0x61, 0x61, 0x62, 0xFF ]
+                |> expect
+                    (beginString
+                        |> ignoreThen (map2 Tuple.pair string string)
+                        |> thenIgnore break
+                    )
+                    (Just ( "a", "b" ))
+            , hex [ 0x52, 0x61, 0x61, 0x61, 0x62 ]
+                |> expect
+                    (beginString
+                        |> ignoreThen (map2 Tuple.pair string string)
+                        |> thenIgnore break
+                    )
+                    Nothing
+            , hex [ 0x9F, 0x01, 0x02, 0xFF ]
+                |> expect
+                    (beginList
+                        |> ignoreThen (map2 Tuple.pair int int)
+                        |> thenIgnore break
+                    )
+                    (Just ( 1, 2 ))
+            , hex [ 0x82, 0x01, 0x02 ]
+                |> expect
+                    (beginList
+                        |> ignoreThen (map2 Tuple.pair int int)
+                        |> thenIgnore break
+                    )
+                    Nothing
+            , hex [ 0xBF, 0x01, 0x01, 0x02, 0x02, 0xFF ]
+                |> expect
+                    (beginDict
+                        |> ignoreThen (map2 Tuple.pair (map2 Tuple.pair int int) (int |> ignoreThen int))
+                        |> thenIgnore break
+                    )
+                    (Just ( ( 1, 1 ), 2 ))
+            , hex [ 0xA2, 0x01, 0x01, 0x02, 0x02 ]
+                |> expect
+                    (beginDict
+                        |> ignoreThen (map2 Tuple.pair (map2 Tuple.pair int int) (int |> ignoreThen int))
+                        |> thenIgnore break
+                    )
+                    Nothing
             ]
         , describe "any / raw"
             [ hex [ 0x00 ]
@@ -311,14 +399,89 @@ suite =
                 |> expect decodeFooCompact (Just <| Foo 14 True (Just 3) Nothing)
             , hex [ 0xA2, 0x00, 0x00, 0x01, 0xF4 ]
                 |> expect decodeFooCompact (Just <| Foo 0 False Nothing Nothing)
+            , hex [ 0xBF, 0x00, 0x0E, 0x01, 0xF5, 0x02, 0x19, 0x05, 0x39, 0x03, 0x00, 0xFF ]
+                |> expect decodeFooCompact (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex [ 0xBF, 0x00, 0x0E, 0x01, 0xF5, 0x03, 0x02, 0xFF ]
+                |> expect decodeFooCompact (Just <| Foo 14 True Nothing (Just 2))
+            , hex [ 0xBF, 0x00, 0x0E, 0x01, 0xF5, 0x02, 0x03, 0xFF ]
+                |> expect decodeFooCompact (Just <| Foo 14 True (Just 3) Nothing)
+            , hex [ 0xBF, 0x00, 0x00, 0x01, 0xF4, 0xFF ]
+                |> expect decodeFooCompact (Just <| Foo 0 False Nothing Nothing)
             , hex [ 0xA4, 0x62, 0x61, 0x30, 0x0E, 0x62, 0x61, 0x31, 0xF5, 0x62, 0x61, 0x32, 0x19, 0x05, 0x39, 0x62, 0x61, 0x33, 0x00 ]
                 |> expect decodeFooVerbose (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex
+                (List.concat
+                    [ [ 0xB8, 0x19, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05 ]
+                    , [ 0x00, 0x06, 0x00, 0x07, 0x00, 0x08, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00 ]
+                    , [ 0x0C, 0x00, 0x0D, 0x00, 0x0E, 0x00, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00, 0x12 ]
+                    , [ 0x00, 0x13, 0x00, 0x14, 0x00, 0x15, 0x00, 0x16, 0x00, 0x17, 0x00, 0x18, 0x18 ]
+                    , [ 0x00 ]
+                    ]
+                )
+                |> expect decodeManyRecord (Just <| Many 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+            , hex
+                (List.concat
+                    [ [ 0xBF, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00 ]
+                    , [ 0x06, 0x00, 0x07, 0x00, 0x08, 0x00, 0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x0C ]
+                    , [ 0x00, 0x0D, 0x00, 0x0E, 0x00, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00, 0x12, 0x00 ]
+                    , [ 0x13, 0x00, 0x14, 0x00, 0x15, 0x00, 0x16, 0x00, 0x17, 0x00, 0x18, 0x18, 0x00 ]
+                    , [ 0xFF ]
+                    ]
+                )
+                |> expect decodeManyRecord (Just <| Many 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+            , hex [ 0xBF, 0x00, 0x00, 0x01, 0xF4 ]
+                |> expect decodeFooCompact Nothing
+            , hex [ 0xA3, 0x00, 0x0E, 0x03, 0x02, 0x01, 0xF5 ]
+                |> expect decodeFooCompact Nothing
             ]
         , describe "Tuples"
             [ hex [ 0x84, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00 ]
                 |> expect decodeFooTuple (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex [ 0x9F, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00, 0xFF ]
+                |> expect decodeFooTuple (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex
+                (List.concat
+                    [ [ 0x98, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                    , [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                    , [ 0x00 ]
+                    ]
+                )
+                |> expect decodeManyTuple (Just <| Many 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+            , hex
+                (List.concat
+                    [ [ 0x9F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                    , [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                    , [ 0xFF ]
+                    ]
+                )
+                |> expect decodeManyTuple (Just <| Many 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+            , hex [ 0x9F, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00 ]
+                |> expect decodeFooTuple Nothing
+            , hex [ 0x9F, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00, 0xF5 ]
+                |> expect decodeFooTuple Nothing
             ]
         ]
+
+
+{-| Alias / Shortcut to write test cases
+-}
+expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
+expect decoder output ( readable, input ) =
+    test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
+        \_ -> input |> decode decoder |> Expect.equal output
+
+
+{-| Convert a list of BE unsigned8 to bytes
+-}
+hex : List Int -> ( List Int, Bytes )
+hex xs =
+    ( xs, xs |> List.map E.unsignedInt8 >> E.sequence >> E.encode )
+
+
+
+{-------------------------------------------------------------------------------
+                                  Fixtures
+-------------------------------------------------------------------------------}
 
 
 type alias Map2 =
@@ -375,16 +538,94 @@ decodeFooTuple =
             >> elem (maybe int)
 
 
-{-| Alias / Shortcut to write test cases
+{-| Large record for testing field decoders above 23
 -}
-expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
-expect decoder output ( readable, input ) =
-    test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
-        \_ -> input |> decode decoder |> Expect.equal output
+type alias Many =
+    { a0 : Int
+    , a1 : Int
+    , a2 : Int
+    , a3 : Int
+    , a4 : Int
+    , a5 : Int
+    , a6 : Int
+    , a7 : Int
+    , a8 : Int
+    , a9 : Int
+    , a10 : Int
+    , a11 : Int
+    , a12 : Int
+    , a13 : Int
+    , a14 : Int
+    , a15 : Int
+    , a16 : Int
+    , a17 : Int
+    , a18 : Int
+    , a19 : Int
+    , a20 : Int
+    , a21 : Int
+    , a22 : Int
+    , a23 : Int
+    , a24 : Int
+    }
 
 
-{-| Convert a list of BE unsigned8 to bytes
--}
-hex : List Int -> ( List Int, Bytes )
-hex xs =
-    ( xs, xs |> List.map E.unsignedInt8 >> E.sequence >> E.encode )
+decodeManyRecord : Decoder Many
+decodeManyRecord =
+    record int Many <|
+        fields
+            >> field 0 int
+            >> field 1 int
+            >> field 2 int
+            >> field 3 int
+            >> field 4 int
+            >> field 5 int
+            >> field 6 int
+            >> field 7 int
+            >> field 8 int
+            >> field 9 int
+            >> field 10 int
+            >> field 11 int
+            >> field 12 int
+            >> field 13 int
+            >> field 14 int
+            >> field 15 int
+            >> field 16 int
+            >> field 17 int
+            >> field 18 int
+            >> field 19 int
+            >> field 20 int
+            >> field 21 int
+            >> field 22 int
+            >> field 23 int
+            >> field 24 int
+
+
+decodeManyTuple : Decoder Many
+decodeManyTuple =
+    tuple Many <|
+        elems
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int
+            >> elem int

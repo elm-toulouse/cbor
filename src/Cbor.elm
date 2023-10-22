@@ -11,7 +11,7 @@ import Cbor.Tag exposing (Tag)
 
 
 {-| A generic sum-type for representing any arbitrary CBOR item. See also
-Cbor.Decode#any and Cbor.Encode#any
+[`Cbor.Decode.any`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Decode#any) and [`Cbor.Encode.any`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Encode#any)
 -}
 type CborItem
     = CborInt Int

@@ -228,7 +228,7 @@ bytes bs =
             ]
 
 
-{-| Create a CBOR `null` value. This can be decoded using [`Cbor.decode.maybe`](../Cbor-Decode#maybe).
+{-| Create a CBOR `null` value. This can be decoded using [`Cbor.decode.maybe`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Decode#maybe).
 
     E.null == Bytes<0xF6>
 
@@ -238,7 +238,7 @@ null =
     Encoder <| E.unsignedInt8 0xF6
 
 
-{-| Create a CBOR `undefined` value. This can be decoded using [`Cbor.decode.maybe`](../Cbor-Decode#maybe).
+{-| Create a CBOR `undefined` value. This can be decoded using [`Cbor.decode.maybe`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Decode#maybe).
 
     E.undefined == Bytes<0xF7>
 
@@ -585,8 +585,9 @@ beginDict =
     Encoder <| majorType 5 tBEGIN
 
 
-{-| Encode termination of an indefinite structure. See [`beginList`](#beginList)
-or [`beginDict`](#beginDict) for detail about usage.
+{-| Encode termination of an indefinite structure. See
+[`beginString`](#beginString), [`beginBytes`](#beginBytes),
+[`beginList`](#beginList), [`beginDict`](#beginDict) for detail about usage.
 -}
 break : Encoder
 break =
@@ -654,7 +655,7 @@ raw =
 -------------------------------------------------------------------------------}
 
 
-{-| Encode a particular [`Tag`](../Cbor-Tag#Tag) as a CBOR tag prefix.
+{-| Encode a particular [`Tag`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Tag#Tag) as a CBOR tag prefix.
 -}
 tag : Tag -> Encoder
 tag t =
