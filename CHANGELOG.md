@@ -1,7 +1,157 @@
-# Changelog 
+# Changelog
+
+## v2.0.0 (2023-10-22)
+
+### Added
+
+#### Cbor.Decode
+
+- New primitives for decoding tuples:
+
+  ```elm
+  tuple :
+      steps
+      -> (Step Never steps -> Decoder (Step Never tuple))
+      -> Decoder tuple
+
+  elems :
+      Step Never steps
+      -> Decoder (Step Never steps)
+
+  elem :
+      Decoder field
+      -> Decoder (Step Never (field -> steps))
+      -> Decoder (Step Never steps)
+  ```
+
+- New primitives for decoding records:
+
+  ```elm
+  record :
+      Decoder k
+      -> steps
+      -> (Step k steps -> Decoder (Step k record))
+      -> Decoder record
+
+  fields :
+      Step k steps
+      -> Decoder (Step k steps)
+
+  field :
+      k
+      -> Decoder field
+      -> Decoder (Step k (field -> steps))
+      -> Decoder (Step k steps)
+
+  optionalField :
+      k
+      -> Decoder field
+      -> Decoder (Step k (Maybe field -> steps))
+      -> Decoder (Step k steps)
+  ```
+
+- New primitives for manually decoding definite & indefinite structures:
+
+  ```elm
+  length : Decoder Int
+  size : Decoder Int
+
+  beginBytes : Decoder ()
+  beginDict : Decoder ()
+  beginList : Decoder ()
+  beginString : Decoder ()
+  break : Decoder ()
+  ```
+
+- New helpers for combining decoders:
+
+  ```elm
+  ignoreThen : Decoder a -> Decoder ignored -> Decoder a
+  thenIgnore : Decoder ignored -> Decoder a -> Decoder a
+  ```
+
+#### Cbor.Encode
+
+- New primitives for encoding tuples:
+
+  ```elm
+  tuple :
+      (Step Never tuple
+      -> Step Never tuple)
+      -> tuple
+      -> Encoder
+
+  elems :
+      Step Never tuple
+      -> Step Never tuple
+  elem :
+      (elem -> Encoder)
+      -> (tuple -> elem)
+      -> Step Never tuple
+      -> Step Never tuple
+  ```
+
+- New primitives for encoding records:
+
+  ```elm
+  record :
+      (k -> Encoder)
+      -> (Step k record -> Step k record)
+      -> record
+      -> Encoder
+
+
+  fields :
+      Step k record
+      -> Step k record
+
+  field :
+      k
+      -> (field -> Encoder)
+      -> (record -> field)
+      -> Step k record
+      -> Step k record
+
+  optionalField :
+      k
+      -> (field -> Encoder)
+      -> (record -> Maybe field)
+      -> Step k record
+      -> Step k record
+  ```
+
+- New primitives for manually encoding definite structures:
+
+  ```elm
+  size : Int -> Encoder
+  length : Int -> Encoder
+  ```
+
+- New helper for optionally encoding values:
+
+  ```elm
+  maybe : (a -> Encoder) -> Maybe a -> Encoder
+  ```
+
+### Changed
+
+#### Cbor.Decode
+
+- Changed `record` as described in the previous section.
+
+#### Cbor.Encode
+
+- Renamed `beginStrings` into `beginString`.
+- Renamed `pair` into `keyValue`.
+- Renamed `keyValueMap` into `associativeList`.
+
+### Removed
+
+#### Cbor.Decode
+
+- Removed `array`, made obsolete by the new (more flexible) additions.
 
 ## v1.1.0 (2021-08-03)
-
 
 ### Added
 
@@ -14,8 +164,8 @@
 - New primitives added (see #1):
 
   ```elm
-  keyValueMap : Decoder k -> Decoder v -> Decoder (List ( k, v )) 
-  
+  keyValueMap : Decoder k -> Decoder v -> Decoder (List ( k, v ))
+
   array : Decoder a -> Decoder a
   record : Decoder a -> Decoder a
 
