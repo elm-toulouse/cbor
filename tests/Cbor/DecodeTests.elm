@@ -14,12 +14,15 @@ import Cbor.Decode
         ( Decoder
         , andThen
         , any
-        , array
         , bool
         , bytes
         , decode
         , dict
+        , elem
+        , elems
         , fail
+        , field
+        , fields
         , float
         , int
         , list
@@ -29,13 +32,14 @@ import Cbor.Decode
         , map4
         , map5
         , maybe
-        , pair
+        , optionalField
         , raw
         , record
         , string
         , succeed
         , tag
         , tagged
+        , tuple
         )
 import Cbor.Tag exposing (Tag(..))
 import Dict
@@ -125,12 +129,6 @@ suite =
                 |> expect (list int) (Just [ 1, 2, 3, 4 ])
             , hex [ 0x9F, 0x81, 0x01, 0x9F, 0x02, 0x02, 0xFF, 0x82, 0x03, 0x03, 0xFF ]
                 |> expect (list (list int)) (Just [ [ 1 ], [ 2, 2 ], [ 3, 3 ] ])
-            , hex [ 0x0E, 0x62, 0x34, 0x32 ]
-                |> expect (pair int string) (Just ( 14, "42" ))
-            , hex [ 0x0E, 0x62, 0x34, 0x32 ]
-                |> expect (pair int int) Nothing
-            , hex [ 0x83, 0x0E, 0xF5 ]
-                |> expect (array <| map2 Tuple.pair int bool) (Just ( 14, True ))
             ]
         , describe "Major Type 5: a map of pairs of data items"
             [ hex [ 0xA0 ]
@@ -301,10 +299,24 @@ suite =
                 |> expect (list any) (Just <| [ CborBool False, CborBool True ])
             , hex [ 0xF9, 0x55, 0x22 ]
                 |> expect any (Just <| CborFloat 82.125)
-            , hex [ 0x83, 0x61, 0x61, 0xA0, 0x61, 0x62 ]
-                |> expect (array <| map3 (\a _ c -> ( a, c )) string any string) (Just ( "a", "b" ))
             , hex [ 0x82, 0x00, 0x01 ]
                 |> expect raw (Just <| Tuple.second <| hex [ 0x82, 0x00, 0x01 ])
+            ]
+        , describe "Record"
+            [ hex [ 0xA4, 0x00, 0x0E, 0x01, 0xF5, 0x02, 0x19, 0x05, 0x39, 0x03, 0x00 ]
+                |> expect decodeFooCompact (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex [ 0xA3, 0x00, 0x0E, 0x01, 0xF5, 0x03, 0x02 ]
+                |> expect decodeFooCompact (Just <| Foo 14 True Nothing (Just 2))
+            , hex [ 0xA3, 0x00, 0x0E, 0x01, 0xF5, 0x02, 0x03 ]
+                |> expect decodeFooCompact (Just <| Foo 14 True (Just 3) Nothing)
+            , hex [ 0xA2, 0x00, 0x00, 0x01, 0xF4 ]
+                |> expect decodeFooCompact (Just <| Foo 0 False Nothing Nothing)
+            , hex [ 0xA4, 0x62, 0x61, 0x30, 0x0E, 0x62, 0x61, 0x31, 0xF5, 0x62, 0x61, 0x32, 0x19, 0x05, 0x39, 0x62, 0x61, 0x33, 0x00 ]
+                |> expect decodeFooVerbose (Just <| Foo 14 True (Just 1337) (Just 0))
+            ]
+        , describe "Tuples"
+            [ hex [ 0x84, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00 ]
+                |> expect decodeFooTuple (Just <| Foo 14 True (Just 1337) (Just 0))
             ]
         ]
 
@@ -323,6 +335,44 @@ type alias Map4 =
 
 type alias Map5 =
     { a : Int, b : Int, c : Int, d : Int, e : Int }
+
+
+type alias Foo =
+    { a0 : Int
+    , a1 : Bool
+    , a2 : Maybe Int
+    , a3 : Maybe Int
+    }
+
+
+decodeFooCompact : Decoder Foo
+decodeFooCompact =
+    record int Foo <|
+        fields
+            >> field 0 int
+            >> field 1 bool
+            >> optionalField 2 int
+            >> optionalField 3 int
+
+
+decodeFooVerbose : Decoder Foo
+decodeFooVerbose =
+    record string Foo <|
+        fields
+            >> field "a0" int
+            >> field "a1" bool
+            >> optionalField "a2" int
+            >> optionalField "a3" int
+
+
+decodeFooTuple : Decoder Foo
+decodeFooTuple =
+    tuple Foo <|
+        elems
+            >> elem int
+            >> elem bool
+            >> elem (maybe int)
+            >> elem (maybe int)
 
 
 {-| Alias / Shortcut to write test cases

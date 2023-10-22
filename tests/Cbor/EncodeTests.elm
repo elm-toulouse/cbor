@@ -17,24 +17,33 @@ import Cbor.Encode
         , beginBytes
         , beginDict
         , beginList
-        , beginStrings
+        , beginString
         , bool
         , break
         , bytes
         , dict
+        , elem
+        , elems
         , encode
+        , field
+        , fields
         , float
         , float16
         , float32
         , float64
         , int
+        , length
         , list
+        , maybe
         , null
-        , pair
+        , optionalField
         , raw
+        , record
         , sequence
+        , size
         , string
         , tagged
+        , tuple
         , undefined
         )
 import Cbor.Tag exposing (Tag(..))
@@ -114,12 +123,12 @@ suite =
                 |> expect [ 0x63, 0xE6, 0xB0, 0xB4 ]
             , string "🌈"
                 |> expect [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
-            , sequence [ beginStrings, string "strea", string "ming", break ]
+            , sequence [ beginString, string "strea", string "ming", break ]
                 |> expect
                     ([ 0x7F, 0x65, 0x73, 0x74, 0x72, 0x65, 0x61 ]
                         ++ [ 0x64, 0x6D, 0x69, 0x6E, 0x67, 0xFF ]
                     )
-            , sequence [ beginStrings, string "a", string "b", break ]
+            , sequence [ beginString, string "a", string "b", break ]
                 |> expect [ 0x7F, 0x61, 0x61, 0x61, 0x62, 0xFF ]
             ]
         , describe "Major Type 4: an array of data-items"
@@ -136,6 +145,12 @@ suite =
                         ++ [ 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x18 ]
                         ++ [ 0x18, 0x19 ]
                     )
+            , length 0
+                |> expect [ 0x80 ]
+            , length 2
+                |> expect [ 0x82 ]
+            , length 42
+                |> expect [ 0x98, 0x2A ]
             , sequence [ beginList, break ]
                 |> expect [ 0x9F, 0xFF ]
             , sequence [ beginList, int 1, list int [ 2, 3 ], sequence [ beginList, int 4, int 5, break ], break ]
@@ -184,10 +199,16 @@ suite =
                         ++ [ 0x42, 0x61, 0x63, 0x61, 0x43, 0x61, 0x64, 0x61 ]
                         ++ [ 0x44, 0x61, 0x65, 0x61, 0x45 ]
                     )
+            , size 0
+                |> expect [ 0xA0 ]
+            , size 2
+                |> expect [ 0xA2 ]
+            , size 42
+                |> expect [ 0xB8, 0x2A ]
             , sequence
                 [ beginDict
-                , pair string int ( "a", 1 )
-                , pair string int ( "b", 2 )
+                , sequence [ string "a", int 1 ]
+                , sequence [ string "b", int 2 ]
                 , break
                 ]
                 |> expect
@@ -250,6 +271,8 @@ suite =
                 |> expect [ 0xFA, 0xFF, 0x80, 0x00, 0x00 ]
             , float 1.1
                 |> expect [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
+            , float64 0
+                |> expect [ 0xFB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
             , float64 1.0e300
                 |> expect [ 0xFB, 0x7E, 0x37, 0xE4, 0x3C, 0x88, 0x00, 0x75, 0x9C ]
             , float64 -4.1
@@ -277,7 +300,57 @@ suite =
             , raw (toBytes [ 0x82, 0x00, 0x01 ])
                 |> expect [ 0x82, 0x00, 0x01 ]
             ]
+        , describe "Records"
+            [ encodeFooCompact (Foo 14 True (Just 1337))
+                |> expect
+                    [ 0xA3, 0x00, 0x0E, 0x01, 0xF5, 0x02, 0x19, 0x05, 0x39 ]
+            , encodeFooCompact (Foo 0 False Nothing)
+                |> expect
+                    [ 0xA2, 0x00, 0x00, 0x01, 0xF4 ]
+            , encodeFooVerbose (Foo 14 True (Just 1337))
+                |> expect
+                    [ 0xA3, 0x62, 0x61, 0x30, 0x0E, 0x62, 0x61, 0x31, 0xF5, 0x62, 0x61, 0x32, 0x19, 0x05, 0x39 ]
+            ]
+        , describe "Tuples"
+            [ encodeFooTuple (Foo 14 True (Just 1337))
+                |> expect
+                    [ 0x83, 0x0E, 0xF5, 0x19, 0x05, 0x39 ]
+            ]
         ]
+
+
+type alias Foo =
+    { a0 : Int
+    , a1 : Bool
+    , a2 : Maybe Int
+    }
+
+
+encodeFooCompact : Foo -> Encoder
+encodeFooCompact =
+    record int <|
+        fields
+            >> field 0 int .a0
+            >> field 1 bool .a1
+            >> optionalField 2 int .a2
+
+
+encodeFooVerbose : Foo -> Encoder
+encodeFooVerbose =
+    record string <|
+        fields
+            >> field "a0" int .a0
+            >> field "a1" bool .a1
+            >> optionalField "a2" int .a2
+
+
+encodeFooTuple : Foo -> Encoder
+encodeFooTuple =
+    tuple <|
+        elems
+            >> elem int .a0
+            >> elem bool .a1
+            >> elem (maybe int) .a2
 
 
 {-| Alias / Shortcut to write test cases

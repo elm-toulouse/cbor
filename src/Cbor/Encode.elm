@@ -1,9 +1,10 @@
 module Cbor.Encode exposing
-    ( Encoder, encode, sequence
+    ( Encoder, encode, sequence, maybe, keyValue
     , bool, int, float, string, bytes, null, undefined
     , float16, float32, float64
-    , list, dict, keyValueMap, pair
-    , beginStrings, beginBytes, beginList, beginDict, break
+    , list, length, associativeList, dict, size
+    , Step, record, fields, field, optionalField, tuple, elems, elem
+    , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
     , any, raw
     )
@@ -17,7 +18,7 @@ MessagePack.
 
 ## Encoder
 
-@docs Encoder, encode, sequence
+@docs Encoder, encode, sequence, maybe, keyValue
 
 
 ## Primitives
@@ -30,9 +31,14 @@ MessagePack.
 @docs float16, float32, float64
 
 
-## Data Structures
+## Simple Data-Structures
 
-@docs list, dict, keyValueMap, pair
+@docs list, length, associativeList, dict, size
+
+
+## Records & Tuples
+
+@docs Step, record, fields, field, optionalField, tuple, elems, elem
 
 
 ## Streaming
@@ -43,12 +49,12 @@ begin before the number of items inside the array or map, or the total length
 of the string, is known. (The application of this is often referred to as
 "streaming" within a data item.)
 
-> NOTE:
+> **NOTE**:
 >
 > Indefinite-length arrays and maps are dealt with differently than
 > indefinite-length byte strings and text strings.
 
-@docs beginStrings, beginBytes, beginList, beginDict, break
+@docs beginString, beginBytes, beginList, beginDict, break
 
 
 ## Tagging
@@ -84,50 +90,48 @@ type Encoder
     = Encoder E.Encoder
 
 
-{-| Turn a CBOR 'Encoder' into 'Bytes'.
-
-    import Cbor.Encode as E
-    import Url exposing (Url)
-
-    type alias Album =
-        { artist : String
-        , title : String
-        , year : Int
-        , tracks : List ( String, Duration )
-        , links : List Url
-        }
-
-    type Duration
-        = Duration Int
-
-    encodeAlbum : Album -> E.Encoder
-    encodeAlbum { artist, title, year, tracks, links } =
-        let
-            link =
-                Url.toString >> E.string
-
-            track =
-                E.pair E.string (\(Duration d) -> E.int d)
-        in
-        E.sequence
-            [ E.string artist
-            , E.string title
-            , E.int year
-            , E.list track tracks
-            , E.list link links
-            ]
-
+{-| Turn a CBOR `Encoder` into [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes).
 -}
 encode : Encoder -> Bytes
 encode (Encoder e) =
     E.encode e
 
 
-{-| Combine a bunch of encoders.
+{-| Combine a bunch of encoders sequentially.
 -}
 sequence : List Encoder -> Encoder
 sequence =
     List.map (\(Encoder e) -> e) >> E.sequence >> Encoder
+
+
+{-| Optionally encode a value. `Nothing` is encoded as [`null`](#null).
+-}
+maybe : (a -> Encoder) -> Maybe a -> Encoder
+maybe encodeA m =
+    case m of
+        Nothing ->
+            null
+
+        Just a ->
+            encodeA a
+
+
+{-| Encode a key-value pair as a sequence of a key and a value. This is merely a
+shorthand for a `sequence` on a 2-tuple.
+
+    E.keyValue E.string E.int ( "a", 14 )
+        == E.sequence
+            [ E.string "a"
+            , E.int 14
+            ]
+
+-}
+keyValue : (a -> Encoder) -> (b -> Encoder) -> ( a, b ) -> Encoder
+keyValue encodeA encodeB ( a, b ) =
+    sequence
+        [ encodeA a
+        , encodeB b
+        ]
 
 
 
@@ -137,6 +141,11 @@ sequence =
 
 
 {-| Encode booleans.
+
+    E.bool False == Bytes<0xF4>
+
+    E.bool True == Bytes<0xF5>
+
 -}
 bool : Bool -> Encoder
 bool n =
@@ -150,6 +159,11 @@ bool n =
 
 
 {-| Encode integers from `-9007199254740992` (`-2⁵³`) to `9007199254740991` (`2⁵³ - 1`).
+
+    E.int 0 == Bytes<0x00>
+
+    E.int 1337 == Bytes<0x19, 0x05, 0x39>
+
 -}
 int : Int -> Encoder
 int n =
@@ -166,7 +180,13 @@ int n =
 
 {-| Encode floating numbers with maximum precision (64-bit).
 
-> NOTE: This is an alias for 'float64'.
+    E.float 0 == Bytes<0xFB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>
+
+    E.float -4.1 == Bytes<0xFB, 0xC0, 0x10, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66>
+
+> **NOTE**:
+>
+> This is an alias for [`float64`](#float64).
 
 -}
 float : Float -> Encoder
@@ -174,7 +194,14 @@ float =
     float64
 
 
-{-| Encode a 'String' of fixed size.
+{-| Encode a [`String`](https://package.elm-lang.org/packages/elm/core/latest/String#String) of fixed size as a (definite) CBOR text string.
+
+    E.string "" == Bytes<0x60>
+
+    E.string "IETF" == Bytes <0x64, 0x49, 0x45, 0x54, 0x46>
+
+    E.string "🌈" == Bytes<0x64, 0xF0, 0x9F, 0x8C, 0x88>
+
 -}
 string : String -> Encoder
 string str =
@@ -185,7 +212,12 @@ string str =
             ]
 
 
-{-| Encode raw 'Bytes' of fixed size.
+{-| Encode raw [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes) of fixed size as a (definite) CBOR byte string.
+
+    E.bytes Bytes<> == Bytes<0x40>
+
+    E.bytes Bytes<0x01, 0x02, 0x03, 0x04> = Bytes<0x44, 0x01, 0x02, 0x03, 0x04>
+
 -}
 bytes : Bytes -> Encoder
 bytes bs =
@@ -196,16 +228,20 @@ bytes bs =
             ]
 
 
-{-| Create a CBOR `null` value. This can be decoded using `maybe` from the
-'Cbor.Decode' module.
+{-| Create a CBOR `null` value. This can be decoded using [`Cbor.decode.maybe`](../Cbor-Decode#maybe).
+
+    E.null == Bytes<0xF6>
+
 -}
 null : Encoder
 null =
     Encoder <| E.unsignedInt8 0xF6
 
 
-{-| Create a CBOR `undefined` value. This can be decoded using `maybe` from the
-`Cbor.Decode` module
+{-| Create a CBOR `undefined` value. This can be decoded using [`Cbor.decode.maybe`](../Cbor-Decode#maybe).
+
+    E.undefined == Bytes<0xF7>
+
 -}
 undefined : Encoder
 undefined =
@@ -219,6 +255,13 @@ undefined =
 
 
 {-| Encode floating numbers with half-precision (16-bit).
+
+    E.float16 0.0 == Bytes<0xF9, 0x00, 0x00>
+
+    E.float16 -0.0 == Bytes<0xF9, 0x80, 0x00>
+
+    E.float16 1.5 == Bytes<0xF9, 0x3E, 0x00>
+
 -}
 float16 : Float -> Encoder
 float16 n =
@@ -230,6 +273,11 @@ float16 n =
 
 
 {-| Encode floating numbers with simple precision (32-bit).
+
+    E.float32 0.0 == Bytes<0xFA, 0x00, 0x00, 0x00, 0x00>
+
+    E.float32 3.4028234663852886e38 == Bytes<0xFA, 0x7F, 0x7F, 0xFF, 0xFF>
+
 -}
 float32 : Float -> Encoder
 float32 n =
@@ -241,6 +289,11 @@ float32 n =
 
 
 {-| Encode floating numbers with double precision (64-bit).
+
+    E.float64 0 == Bytes<0xFB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>
+
+    E.float64 -4.1 == Bytes<0xFB, 0xC0, 0x10, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66>
+
 -}
 float64 : Float -> Encoder
 float64 n =
@@ -257,7 +310,7 @@ float64 n =
 -------------------------------------------------------------------------------}
 
 
-{-| Turn a 'List' into a CBOR array
+{-| Turn a `List` into a (definite) CBOR array
 
     E.list E.int [1,2,3] == Bytes<0x83, 0x01, 0x02, 0x03>
 
@@ -269,41 +322,187 @@ list e xs =
             :: List.map e xs
 
 
-{-| Turn a 2-'Tuple' into a CBOR array
+{-| Encode a (definite) list length only. This may be useful to stream a
+definite list or simply, to have even more fine-grained control over the
+creation of a definite list.
 
-    E.pair E.string E.int ( "a", 14 ) == Bytes<0x61, 0x61, 0x0E>
+    E.sequence
+        [ E.length 2
+        , E.int 1
+        , E.int 2
+        ]
+        == E.list E.int [ 1, 2 ]
 
 -}
-pair : (a -> Encoder) -> (b -> Encoder) -> ( a, b ) -> Encoder
-pair encodeA encodeB ( a, b ) =
-    sequence
-        [ encodeA a
-        , encodeB b
-        ]
+length : Int -> Encoder
+length =
+    Encoder << unsigned 4
 
 
-{-| Turn a 'Dict' into a CBOR array
+{-| Turn a `(key, value)` associative list into a (definite) CBOR map. Note
+that, if keys are `comparable`, you should consider using a [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict) and
+[`dict`](#dict) instead.
+-}
+associativeList : (k -> Encoder) -> (v -> Encoder) -> List ( k, v ) -> Encoder
+associativeList k v xs =
+    sequence <|
+        Encoder (unsigned 5 (List.length xs))
+            :: List.map (keyValue k v) xs
+
+
+{-| Turn a [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict) into a (definite) CBOR map.
 
     E.dict E.string E.int (Dict.fromList [ ( "a", 1 ), ( "b", 2 ) ])
         == Bytes<0xA2, 0x61, 0x61, 0x01, 0x61, 0x62, 0x02>
 
-Note that in CBOR, every data-structure are mostly arrays of items. As a
-consequence, dictionnaries are encoded as a list of pairs (key, value).
-
 -}
 dict : (k -> Encoder) -> (v -> Encoder) -> Dict k v -> Encoder
-dict k v d =
-    keyValueMap k v (Dict.toList d)
+dict k v =
+    associativeList k v << Dict.toList
 
 
-{-| Turn a (key, value) into a CBOR array. Note that, if keys are `comparable`,
-you should consider using a `Dict` instead.
+{-| Encode a (definite) dict size only. This may be useful to stream a
+definite dict or simply, to have even more fine-grained control over the
+creation of a definite dict.
 -}
-keyValueMap : (k -> Encoder) -> (v -> Encoder) -> List ( k, v ) -> Encoder
-keyValueMap k v xs =
-    sequence <|
-        Encoder (unsigned 5 (List.length xs))
-            :: List.map (pair k v) xs
+size : Int -> Encoder
+size =
+    Encoder << unsigned 5
+
+
+
+{-------------------------------------------------------------------------------
+                                Records / Tuples
+-------------------------------------------------------------------------------}
+
+
+{-| An intermediate (opaque) step in the encoding of a record or tuple. See
+[`record`](#record) or [`tuple`](#tuple) for more detail.
+-}
+type Step k result
+    = Step { steps : List Encoder, encodeKey : k -> Encoder, this : result }
+
+
+{-| Encode a record as a (definite) CBOR map. Keys in the map can be arbitrary
+CBOR but are expected to be homogeneous across the record.
+
+    type alias Album =
+        { artist : String
+        , title : String
+        , label : Maybe String
+        }
+
+    -- In this example, we use compact integer as keys.
+    encodeAlbumCompact : Album -> E.Encoder
+    encodeAlbumCompact =
+        E.record E.int <|
+            E.fields
+                >> E.field 0 E.string .artist
+                >> E.field 1 E.string .title
+                >> E.optionalField 2 E.string .genre
+
+    -- In this example, we use more verbose string keys.
+    encodeAlbumVerbose : Album -> E.Encoder
+    encodeAlbumVerbose =
+        E.record E.string <|
+            E.fields
+                >> E.field "artist" E.string .artist
+                >> E.field "title" E.string .title
+                >> E.optionalField "label" E.string .genre
+
+-}
+record : (k -> Encoder) -> (Step k record -> Step k record) -> record -> Encoder
+record encodeKey step this =
+    let
+        (Step { steps }) =
+            step <|
+                Step { steps = [], encodeKey = encodeKey, this = this }
+    in
+    sequence (size (List.length steps // 2) :: List.reverse steps)
+
+
+{-| A helper that makes writing record encoders nicer. It is equivalent to
+`identity`, but let us align encoders to fight compulsory OCDs.
+-}
+fields : Step k record -> Step k record
+fields =
+    identity
+
+
+{-| Encode a field of record and step through the encoding. See [`record`](#record)
+for detail about usage.
+-}
+field : k -> (field -> Encoder) -> (record -> field) -> Step k record -> Step k record
+field k encodeValue extract (Step { steps, encodeKey, this }) =
+    Step
+        { steps = encodeValue (extract this) :: encodeKey k :: steps
+        , encodeKey = encodeKey
+        , this = this
+        }
+
+
+{-| Encode an optional field of record and step through the encoding. See [`record`](#record)
+for detail about usage.
+
+> **NOTE**:
+>
+> When the value is `Nothing`, the field (and its key) is completely omitted
+> from the final record.
+
+-}
+optionalField : k -> (field -> Encoder) -> (record -> Maybe field) -> Step k record -> Step k record
+optionalField k encodeValue extract ((Step { steps, encodeKey, this }) as step) =
+    case extract this of
+        Nothing ->
+            step
+
+        Just a ->
+            field k encodeValue (always a) step
+
+
+{-| Encode a record / tuple as a (definite) CBOR array.
+
+    type alias Track =
+        { title : String
+        , duration : Int
+        }
+
+    encodeTrack : Track -> E.Encoder
+    encodeTrack =
+        E.tuple <|
+            E.elems
+                >> E.elem E.string .title
+                >> E.elem E.int .duration
+
+-}
+tuple : (Step Never tuple -> Step Never tuple) -> tuple -> Encoder
+tuple step this =
+    let
+        (Step { steps }) =
+            step <|
+                Step { steps = [], encodeKey = never, this = this }
+    in
+    sequence (length (List.length steps) :: List.reverse steps)
+
+
+{-| A helper that makes writing tuple encoders nicer. It is equivalent to
+`identity`, but let us align encoders to fight compulsory OCDs.
+-}
+elems : Step Never tuple -> Step Never tuple
+elems =
+    identity
+
+
+{-| Encode an elements of a tuple and step through the encoding. See [`tuple`](#tuple)
+for detail about usage.
+-}
+elem : (elem -> Encoder) -> (tuple -> elem) -> Step Never tuple -> Step Never tuple
+elem encodeElem extract (Step { steps, encodeKey, this }) =
+    Step
+        { steps = encodeElem (extract this) :: steps
+        , encodeKey = encodeKey
+        , this = this
+        }
 
 
 
@@ -312,8 +511,9 @@ keyValueMap k v xs =
 -------------------------------------------------------------------------------}
 
 
-{-| Encode a 'Bytes' of indefinite length. This indicates the beginning of
-multiple calls to 'bytes', followed by a 'break' to signal the end of the
+{-| Encode a [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes)
+of indefinite length in chunks. This indicates the beginning of multiple calls
+to [`bytes`](#bytes), followed by a [`break`](#break) to signal the end of the
 stream. For example:
 
     E.sequence
@@ -329,12 +529,13 @@ beginBytes =
     Encoder <| majorType 2 tBEGIN
 
 
-{-| Encode a 'String' of indefinite length. This indicates the beginning of
-multiple calls to 'string', followed by a 'break' to signal the end of the
+{-| Encode a [`String`](https://package.elm-lang.org/packages/elm/core/latest/String#String)
+of indefinite length in chunks. This indicates the beginning of multiple calls
+to [`string`](#string), followed by a [`break`](#break) to signal the end of the
 stream. For example:
 
     E.sequence
-        [ E.beginStrings
+        [ E.beginString
         , E.string "elm"
         , E.string "rocks"
         , E.string "!"
@@ -342,14 +543,14 @@ stream. For example:
         ]
 
 -}
-beginStrings : Encoder
-beginStrings =
+beginString : Encoder
+beginString =
     Encoder <| majorType 3 tBEGIN
 
 
-{-| Encode a 'List' of indefinite length. This indicates the beginning of
-multiple calls for encoding elements, followed by a 'break' to signal the end of the
-stream. For example:
+{-| Encode a `List` of indefinite length. This indicates the beginning of
+multiple calls for encoding elements, followed by a [`break`](#break) to signal
+the end of the stream. For example:
 
     E.sequence
         [ E.beginList
@@ -365,15 +566,16 @@ beginList =
     Encoder <| majorType 4 tBEGIN
 
 
-{-| Encode a 'Dict' of indefinite length. This indicates the beginning of
-multiple calls for encoding pairs of elements, followed by a 'break' to signal
-the end of the stream. For example:
+{-| Encode a [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict)
+of indefinite length. This indicates the beginning of multiple calls for
+encoding pairs of elements, followed by a [`break`](#break) to signal the end of
+the stream. For example:
 
     E.sequence
         [ E.beginDict
-        , E.pair E.int E.string ( 1, "elm" )
-        , E.pair E.int E.string ( 2, "rocks" )
-        , E.pair E.int E.string ( 3, "!" )
+        , E.keyValue E.int E.string ( 1, "elm" )
+        , E.keyValue E.int E.string ( 2, "rocks" )
+        , E.keyValue E.int E.string ( 3, "!" )
         , E.break
         ]
 
@@ -383,7 +585,8 @@ beginDict =
     Encoder <| majorType 5 tBEGIN
 
 
-{-| Encode termination of an indefinite structure.
+{-| Encode termination of an indefinite structure. See [`beginList`](#beginList)
+or [`beginDict`](#beginDict) for detail about usage.
 -}
 break : Encoder
 break =
@@ -418,7 +621,7 @@ any item =
             list any xs
 
         CborMap xs ->
-            keyValueMap any any xs
+            associativeList any any xs
 
         CborTag t ->
             tag t
@@ -451,7 +654,7 @@ raw =
 -------------------------------------------------------------------------------}
 
 
-{-| Encode a particular 'Tag' to binary CBOR
+{-| Encode a particular [`Tag`](../Cbor-Tag#Tag) as a CBOR tag prefix.
 -}
 tag : Tag -> Encoder
 tag t =
@@ -509,7 +712,7 @@ tag t =
                 unsigned 6 i
 
 
-{-| Helper to quickly encode a tagged value
+{-| Helper to quickly a tagged value
 
     E.tagged t encodeA a == E.sequence [ E.tag t, encodeA a ]
 

@@ -1,7 +1,8 @@
 module Cbor.Decode exposing
-    ( Decoder, decode
+    ( Decoder, decode, maybe
     , bool, int, float, string, bytes
-    , list, array, dict, keyValueMap, record, pair, maybe
+    , list, length, dict, size
+    , Step, record, fields, field, optionalField, tuple, elems, elem
     , succeed, fail, andThen, map, map2, map3, map4, map5
     , tag, tagged
     , any, raw
@@ -16,7 +17,7 @@ MessagePack.
 
 ## Decoder
 
-@docs Decoder, decode
+@docs Decoder, decode, maybe
 
 
 ## Primitives
@@ -26,7 +27,12 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, array, dict, keyValueMap, record, pair, maybe
+@docs list, length, dict, size
+
+
+## Records & Tuples
+
+@docs Step, record, fields, field, optionalField, tuple, elems, elem
 
 
 ## Mapping
@@ -63,50 +69,49 @@ import Tuple exposing (first)
 ------------------------------------------------------------------------------}
 
 
-{-| Describes how to turn a binary CBOR sequence of bytes into a nice Elm value.
+{-| Describes how to turn a binary CBOR sequence of bytes into any Elm value.
 -}
 type Decoder a
     = Decoder MajorType (Int -> D.Decoder a)
 
 
 {-| Turn a binary CBOR sequence of bytes into a nice Elm value.
-
-    import Cbor.Decode as D
-    import Url exposing (Url)
-
-    type alias Album =
-        { artist : String
-        , title : String
-        , year : Int
-        , tracks : List ( String, Duration )
-        , links : List Url
-        }
-
-    type Duration
-        = Duration Int
-
-    decodeAlbum : D.Decoder Album
-    decodeAlbum =
-        let
-            link =
-                D.string
-                    |> D.map Url.fromString
-                    |> D.andThen (Maybe.map D.succeed >> Maybe.withDefault D.fail)
-
-            track =
-                D.pair D.string (D.map Duration D.int)
-        in
-        D.map5 Album
-            D.string
-            D.string
-            D.int
-            (D.list track)
-            (D.list link)
-
 -}
 decode : Decoder a -> Bytes -> Maybe a
 decode d =
     D.decode (runDecoder d)
+
+
+{-| Helpful for dealing with optional items. Turns [`null`](../Cbor-Encode#null)
+or [`undefined`](../Cbor-Encode#undefined) into [`Nothing`](https://package.elm-lang.org/packages/elm/core/latest/Maybe#Maybe).
+
+    D.decode (D.maybe D.bool) Bytes<0xF6> == Just Nothing
+
+    D.decode (D.maybe D.bool) Bytes<0xF4> == Just (Just False)
+
+-}
+maybe : Decoder a -> Decoder (Maybe a)
+maybe ((Decoder major payload) as decoder) =
+    let
+        runMaybe a =
+            if a == 0xF6 || a == 0xF7 then
+                D.succeed Nothing
+
+            else
+                D.map Just (continueDecoder a decoder)
+    in
+    Decoder MajorTypePlaceholder <|
+        \x ->
+            case major of
+                MajorTypePlaceholder ->
+                    D.map Just (payload x)
+
+                _ ->
+                    if x == tPLACEHOLDER then
+                        D.unsignedInt8 |> D.andThen runMaybe
+
+                    else
+                        runMaybe x
 
 
 
@@ -116,6 +121,11 @@ decode d =
 
 
 {-| Decode a boolean.
+
+    D.decode D.bool Bytes<0xF4> == Just False
+
+    D.decode D.bool Bytes<0xF5> == Just True
+
 -}
 bool : Decoder Bool
 bool =
@@ -131,10 +141,18 @@ bool =
                 D.fail
 
 
-{-| Decode an integer. Note that there's no granular decoders (nor encoders) for
-integers like 'unsignedInt8' or 'signedInt32' because, the CBOR encoding
-of an integers varies depending on the integer value. Therefore, at the
-CBOR-level, as in Elm, there's no notion of _smaller_ integers.
+{-| Decode an integer. Note that there's no granular decoders (nor encoders)
+because, the CBOR encoding of an integers varies depending on the integer value.
+Therefore, at the CBOR-level, as in Elm, there's no notion of _smaller_ integers.
+
+    D.decode D.int Bytes<0x00> == Just 0
+
+    D.decode D.int Bytes<0x00> == Just 0
+
+    D.decode D.int Bytes<0x1A, 0x00, 0x02, 0x33, 0x56> == Just 1337
+
+    D.decode D.int Bytes<0x2D> == Just -14
+
 -}
 int : Decoder Int
 int =
@@ -166,10 +184,6 @@ expect.
 
     D.decode D.float <| E.encode (E.float64 1.1) == Just 1.1
 
-    E.Encode (E.float16 1.1) == Bytes<0xF9, 0x3C, 0x66>
-
-    E.Encode (E.float64 1.1) == Bytes<0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A>
-
 -}
 float : Decoder Float
 float =
@@ -188,9 +202,9 @@ float =
                 D.fail
 
 
-{-| Decode a bunch UTF-8 bytes into a 'String'. In case of streaming, all
-strings are decoded at once and concatenated as if they were one big string.
-See also 'Cbor.Encode.beginStrings'
+{-| Decode a bunch UTF-8 bytes into a [`String`](https://package.elm-lang.org/packages/elm/core/latest/String#String).
+In case of streaming, all string chunks are decoded at once and concatenated as if they were
+one single string. See also [`Cbor.Encode.beginString`](../Cbor-Encode#beginString).
 -}
 string : Decoder String
 string =
@@ -222,9 +236,9 @@ string =
                 unsigned a |> D.andThen D.string
 
 
-{-| Decode a bunch bytes into 'Bytes'. In case of streaming, all
-bytes are decoded at once and concatenated as if they were one big byte string.
-See also 'Cbor.Encode.beginBytes'
+{-| Decode a bunch bytes into [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes).
+In case of streaming, all byte chunks are decoded at once and concatenated as if they were
+one single byte string. See also [`Cbor.Encode.beginBytes`](../Cbor-Encode#beginBytes).
 -}
 bytes : Decoder Bytes
 bytes =
@@ -264,8 +278,7 @@ bytes =
 -------------------------------------------------------------------------------}
 
 
-{-| Decode a 'List' of items 'a'. The list can be finite or infinite (see also
-_Streaming_ in Cbor.Encode).
+{-| Decode a `List` of items `a`. The list can be definite or indefinite.
 
     D.decode (D.list D.int) Bytes<0x82, 0x0E, 0x18, 0x2A> == Just [ 14, 42 ]
 
@@ -275,14 +288,14 @@ _Streaming_ in Cbor.Encode).
 
 -}
 list : Decoder a -> Decoder (List a)
-list ((Decoder major payload) as elem) =
+list ((Decoder major payload) as inner) =
     let
         finite ( n, es ) =
             if n <= 0 then
                 es |> List.reverse |> D.Done |> D.succeed
 
             else
-                runDecoder elem |> D.map (\e -> D.Loop ( n - 1, e :: es ))
+                runDecoder inner |> D.map (\e -> D.Loop ( n - 1, e :: es ))
 
         indef es =
             D.unsignedInt8
@@ -292,7 +305,7 @@ list ((Decoder major payload) as elem) =
                             es |> List.reverse |> D.Done |> D.succeed
 
                         else
-                            continueDecoder a elem
+                            continueDecoder a inner
                                 |> D.map (\e -> D.Loop (e :: es))
                     )
     in
@@ -305,37 +318,15 @@ list ((Decoder major payload) as elem) =
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
-{-| Decode an array or said differently, a list with heterogeneous elements
-(with different types).
-
-Since Elm (or statically typed languages in general) does not support hetegorenous arrays, we
-have to resort to records when parsing. This parser works best with the `map`
-family of functions.
-
-For example, to decode an array with 3 elements:
-
-    D.decode (D.array <| D.map3 MyRecord D.bool D.int D.string) (Bytes<0x83 0xF5 0x0E 0x61 0x61>)
-        == Just (MyRecord True 14 "a")
-
+{-| Decode only the length of a (definite) CBOR array.
 -}
-array : Decoder a -> Decoder a
-array =
-    Decoder (MajorType 4) << always << runDecoder
+length : Decoder Int
+length =
+    Decoder (MajorType 4) D.succeed
 
 
-{-| Decode a 2-tuple. This is mostly a helper around a list decoder with 2
-elements, with non-uniform types.
-
-    D.decode (D.pair D.int D.bool) Bytes<0x0E, 0xF5> == Just ( 14, True )
-
--}
-pair : Decoder a -> Decoder b -> Decoder ( a, b )
-pair a b =
-    map2 Tuple.pair a b
-
-
-{-| Decode an CBOR map of pairs of data-items into an Elm 'Dict'. The map can be
-either of finite length or indefinite length (see also _Streaming_ in Cbor.Encode).
+{-| Decode an CBOR map of pairs of data-items into an Elm [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict).
+The map can be either of definite length or indefinite length.
 
     D.decode (D.dict D.int D.int) Bytes<0xA1, 0x0E, 0x18, 0x2A>
         == Dict.fromList [ ( 14, 42 ) ]
@@ -346,16 +337,22 @@ either of finite length or indefinite length (see also _Streaming_ in Cbor.Encod
 -}
 dict : Decoder comparable -> Decoder a -> Decoder (Dict comparable a)
 dict key value =
-    map Dict.fromList <| keyValueMap key value
+    map Dict.fromList <| associativeList key value
 
 
-{-| Decode a CBOR (key, value) map, where keys can be potentially arbitrary CBOR.
-
-If keys are `comparable`, you should prefer `dict` to this primitive.
-
+{-| Decode only the size of a (definite) CBOR map.
 -}
-keyValueMap : Decoder k -> Decoder v -> Decoder (List ( k, v ))
-keyValueMap key value =
+size : Decoder Int
+size =
+    Decoder (MajorType 5) D.succeed
+
+
+{-| Decode a CBOR map as an associative list, where keys and values can be arbitrary CBOR.
+If keys are [`comparable`](https://package.elm-lang.org/packages/elm/core/latest/Basics#comparison),
+you should prefer [`dict`](#dict) to this primitive.
+-}
+associativeList : Decoder k -> Decoder v -> Decoder (List ( k, v ))
+associativeList key value =
     let
         finite ( n, es ) =
             if n <= 0 then
@@ -386,42 +383,222 @@ keyValueMap key value =
                 unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
 
 
-{-| Like 'array', but for heterogeneous dict.
+
+{-------------------------------------------------------------------------------
+                                 Record / Tuples
+-------------------------------------------------------------------------------}
+
+
+{-| An intermediate (opaque) step in the decoding of a record. See
+[`record`](#record) or [`tuple`](#tuple) for more detail.
 -}
-record : Decoder a -> Decoder a
-record =
-    Decoder (MajorType 5) << always << runDecoder
+type Step k result
+    = Step
+        { size : Int
+        , steps : result
+        , decodeKey : Decoder k
+        , k : Maybe k
+        }
 
 
-{-| Helpful for dealing with optional fields. Turns `null` into `Nothing`.
+{-| Decode a (definite) CBOR map into a record. Keys in the map can be arbitrary
+CBOR but are expected to be homogeneous across the record.
 
-    D.decode (D.maybe D.bool) Bytes<0xF6> == Just Nothing
+    type alias Album =
+        { artist : String
+        , title : String
+        , label : Maybe String
+        }
 
-    D.decode (D.maybe D.bool) Bytes<0xF4> == Just (Just False)
+    -- In this example, we use compact integer as keys.
+    decodeAlbumCompact : D.Decoder Album
+    decodeAlbumCompact =
+        D.record D.int Album <|
+            D.fields
+                >> D.field 0 D.string
+                >> D.field 1 D.string
+                >> D.optionalField 2 D.string
+
+    -- In this example, we use more verbose string keys.
+    decodeAlbumVerbose : D.Decoder Album
+    decodeAlbumVerbose =
+        D.record D.string Album <|
+            D.fields
+                >> D.field "artist" D.string
+                >> D.field "title" D.string
+                >> D.optionalField "label" D.string
 
 -}
-maybe : Decoder a -> Decoder (Maybe a)
-maybe ((Decoder major payload) as decoder) =
-    let
-        runMaybe a =
-            if a == 0xF6 then
-                D.succeed Nothing
+record : Decoder k -> steps -> (Step k steps -> Decoder (Step k record)) -> Decoder record
+record decodeKey steps decodeRecord =
+    size
+        |> andThen
+            (\sz ->
+                decodeRecord <|
+                    Step
+                        { k = Nothing
+                        , steps = steps
+                        , size = sz
+                        , decodeKey =
+                            decodeKey
+                        }
+            )
+        |> map (\(Step st) -> st.steps)
+
+
+{-| A helper that makes writing record decoders nicer. It is equivalent to
+[`succeed`](#succeed), but let us align decoders to fight compulsory OCDs.
+-}
+fields : Step k steps -> Decoder (Step k steps)
+fields =
+    succeed
+
+
+{-| Decode a field of record and step through the decoder. This ensures that
+the decoded key matches the expected key. If it doesn't, the entire decoder is failed.
+
+See [`record`](#record) for detail about usage.
+
+-}
+field : k -> Decoder field -> Decoder (Step k (field -> steps)) -> Decoder (Step k steps)
+field want v =
+    andThen <|
+        \(Step st) ->
+            let
+                k =
+                    case st.k of
+                        Nothing ->
+                            st.decodeKey
+
+                        Just got ->
+                            succeed got
+            in
+            k
+                |> andThen
+                    (\got ->
+                        if want /= got then
+                            fail
+
+                        else
+                            map (step (Step st) Nothing) v
+                    )
+
+
+{-| Decode an optional field of record and step through the decoder. This
+ensures that the decoded key matches the expected key. If it doesn't, the entire
+decoder is failed. When the key is missing, returns `Nothing` as a value.
+
+See [`record`](#record) for detail about usage.
+
+-}
+optionalField : k -> Decoder field -> Decoder (Step k (Maybe field -> steps)) -> Decoder (Step k steps)
+optionalField want v =
+    andThen <|
+        \(Step st) ->
+            let
+                k =
+                    case st.k of
+                        Nothing ->
+                            st.decodeKey
+
+                        Just got ->
+                            succeed got
+            in
+            if st.size <= 0 then
+                step (Step st) st.k Nothing |> succeed
 
             else
-                D.map Just (continueDecoder a decoder)
-    in
-    Decoder MajorTypePlaceholder <|
-        \x ->
-            case major of
-                MajorTypePlaceholder ->
-                    D.map Just (payload x)
+                k
+                    |> andThen
+                        (\got ->
+                            if want /= got then
+                                step (Step st) (Just got) Nothing |> succeed
 
-                _ ->
-                    if x == tPLACEHOLDER then
-                        D.unsignedInt8 |> D.andThen runMaybe
+                            else
+                                v |> map (Just >> step (Step st) Nothing)
+                        )
 
-                    else
-                        runMaybe x
+
+{-| Decode a (definite) CBOR array into a record / tuple.
+
+    type alias Track =
+        { title : String
+        , duration : Int
+        }
+
+    decodeTrack : D.Decoder Track
+    decodeTrack =
+        D.tuple Track <|
+            D.elems
+                >> D.elem D.string
+                >> D.elem D.int
+
+-}
+tuple : steps -> (Step Never steps -> Decoder (Step Never tuple)) -> Decoder tuple
+tuple steps decodeTuple =
+    length
+        |> andThen
+            (\sz ->
+                decodeTuple <|
+                    Step
+                        { k = Nothing
+                        , steps = steps
+                        , size = sz
+                        , decodeKey = fail
+                        }
+            )
+        |> map (\(Step st) -> st.steps)
+
+
+{-| A helper that makes writing record decoders nicer. It is equivalent to
+[`succeed`](#succeed), but let us align decoders to fight compulsory OCDs.
+-}
+elems : Step Never steps -> Decoder (Step Never steps)
+elems =
+    succeed
+
+
+{-| Decode an element of a record or tuple and step through the decoder.
+
+See [`tuple`](#tuple) for detail about usage.
+
+-}
+elem : Decoder field -> Decoder (Step Never (field -> steps)) -> Decoder (Step Never steps)
+elem v =
+    andThen <|
+        \(Step st) -> map (step (Step st) Nothing) v
+
+
+{-| Internal, generic stepping function
+-}
+step : Step k (field -> steps) -> Maybe k -> field -> Step k steps
+step (Step st) k next =
+    Step
+        { k = k
+        , steps = st.steps next
+        , size =
+            -- NOTE: We need to count the total size to know whether we have any
+            -- element left to parse. This is because a record may contain
+            -- optional fields and we don't want to even try to parse the next
+            -- key if we have parsed all the required fields.
+            --
+            -- This is only possible because the size of the record is declared
+            -- next to the major type; so before we begin parsing any field we
+            -- know how many we expect.
+            st.size
+                - (case k of
+                    -- k == Nothing, means that we have consumed the next field.
+                    Nothing ->
+                        1
+
+                    -- k == Just _, means that we haven't consumed the field and
+                    -- we are holding on the key. Waiting for a matching field.
+                    Just _ ->
+                        0
+                  )
+        , decodeKey =
+            st.decodeKey
+        }
 
 
 
@@ -436,7 +613,7 @@ other decoder. So, using the previous example, one could decode a bignum as:
 
     D.decode (D.tag |> D.andThen (\tag -> D.bytes)) input
 
-You may also use @tagged@ if you as a helper to decode a tagged value, while
+You may also use [`tagged`](#tagged) if you as a helper to decode a tagged value, while
 verifying that the tag matches what you expect.
 
     D.decode (D.tagged PositiveBigNum D.bytes) input
@@ -502,8 +679,8 @@ tag =
                 )
 
 
-{-| Decode a value that is tagged with the given 'Tag'. Fails if the value is
-not tagged, or, tag with some other 'Tag'
+{-| Decode a value that is tagged with the given [`Tag`](../Cbor-Tag#Tag).
+Fails if the value is not tagged, or, tagged with some other [`Tag`](../Cbor-Tag#Tag)
 
     D.decode (D.tagged Cbor D.int) Bytes<0xD8, 0x0E> == Just ( Cbor, 14 )
 
@@ -538,7 +715,7 @@ tagged t a =
     D.decode (D.list (D.int |> D.andThen (\_ -> D.succeed 1))) Bytes<0x83, 0x00, 0x00, 0x00>
         == Just [ 1, 1, 1 ]
 
-This particularly handy when used in combination with `andThen`.
+This particularly handy when used in combination with [`andThen`](#andThen).
 
 -}
 succeed : a -> Decoder a
@@ -550,7 +727,7 @@ succeed a =
 
     D.decode D.fail Bytes<0x00> == Nothing
 
-This is particularly handy when used in combination with `andThen`.
+This is particularly handy when used in combination with [`andThen`](#andThen)
 
 -}
 fail : Decoder a
@@ -559,7 +736,7 @@ fail =
 
 
 {-| Decode something and then use that information to decode something else.
-This is useful when a 'Decoder' depends on a value held by another decoder:
+This is useful when a ['Decoder'](#Decoder) depends on a value held by another decoder:
 
     tagged : Tag -> Decoder a -> Decoder a
     tagged expectedTag decodeA =
@@ -579,9 +756,7 @@ andThen fn a =
     Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.andThen (fn >> runDecoder))
 
 
-{-| Transform a decoder.
-
-For example, maybe you just want to know the length of a string:
+{-| Transform a decoder. For example, maybe you just want to know the length of a string:
 
     import String
 
@@ -695,8 +870,8 @@ map5 fn a b c d e =
 -------------------------------------------------------------------------------}
 
 
-{-| Decode remaining bytes as _any_ `CborItem`. This is useful for debugging
-or to inspect some unknown Cbor data.
+{-| Decode remaining bytes as _any_ [`CborItem`](../Cbor#CborItem). This is useful
+for debugging or to inspect some unknown Cbor data.
 
     D.decode D.any <| E.encode (E.int 14) == Just (CborUnsignedInteger 14)
 
@@ -732,7 +907,7 @@ any =
                 D.map CborList <| apply (list any) payload
 
             else if majorType == 5 then
-                D.map CborMap <| apply (keyValueMap any any) payload
+                D.map CborMap <| apply (associativeList any any) payload
 
             else if majorType == 6 then
                 D.map CborTag <| apply tag payload
@@ -756,9 +931,10 @@ any =
                 D.fail
 
 
-{-| Decode the next cbor item as a raw sequence of `Bytes`. Note that this
-primitive is innefficient since it needs to parse the underlying CBOR first, and
-re-encode it into a sequence afterwards. Use for debugging purpose only.
+{-| Decode the next cbor item as a raw sequence of [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes).
+Note that this primitive is innefficient since it needs to parse the underlying
+CBOR first, and re-encode it into a sequence afterwards. Use for debugging
+purpose only.
 -}
 raw : Decoder Bytes
 raw =
