@@ -2,7 +2,7 @@
 
 ---
 
-[![](https://img.shields.io/elm-package/v/elm-toulouse/cbor.svg?style=for-the-badge)](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/) 
+[![](https://img.shields.io/elm-package/v/elm-toulouse/cbor.svg?style=for-the-badge)](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/)
 [![](https://img.shields.io/travis/elm-toulouse/cbor.svg?style=for-the-badge&label=%F0%9F%94%A8%20Build)](https://travis-ci.org/elm-toulouse/cbor/builds)
 [![](https://img.shields.io/codecov/c/gh/elm-toulouse/cbor.svg?color=e84393&label=%E2%98%82%EF%B8%8F%20Coverage&style=for-the-badge)](https://codecov.io/gh/elm-toulouse/cbor)
 [![](https://img.shields.io/github/license/elm-toulouse/cbor.svg?style=for-the-badge&label=%20%F0%9F%93%84%20License)](https://github.com/elm-toulouse/cbor/blob/master/LICENSE)
@@ -26,62 +26,106 @@ elm install elm-toulouse/cbor
 ### Usage
 
 ```elm
-import Url exposing (Url)
 import Cbor.Decode as D
 import Cbor.Encode as E
-
 
 type alias Album =
     { artist : String
     , title : String
-    , year : Int
-    , tracks : List ( String, Duration )
-    , links : List Url
+    , genre : Maybe Genre
+    , tracks : List Track
+    , label : Maybe String
     }
 
-type Duration
-    = Duration Int
+
+type alias Track =
+    { title : String
+    , duration : Int
+    }
 
 
--- ENCODER
+type Genre
+    = Electronic
+    | Pop
+    | Jazz
+    | Metal
+
 
 encodeAlbum : Album -> E.Encoder
-encodeAlbum { artist, title, year, tracks, links } =
-    let 
-        link =  
-            Url.toString >> E.string
-      
-        track = 
-            E.pair E.string (\(Duration d) -> E.int d)
-    in
-    E.sequence 
-      [ E.string artist
-      , E.string title
-      , E.int year
-      , E.list track tracks
-      , E.list link links
-      ]
+encodeAlbum =
+    E.record E.int <|
+        E.fields
+            >> E.field 0 E.string .artist
+            >> E.field 1 E.string .title
+            >> E.optionalField 2 encodeGenre .genre
+            >> E.field 3 (E.list encodeTrack) .tracks
+            >> E.optionalField 4 E.string .label
 
-
--- DECODER
 
 decodeAlbum : D.Decoder Album
 decodeAlbum =
-    let
-        link =
-            D.string
-                |> D.map Url.fromString
-                |> D.andThen (Maybe.map D.succeed >> Maybe.withDefault D.fail)
+    D.record D.int Album <|
+        D.fields
+            >> D.field 0 D.string
+            >> D.field 1 D.string
+            >> D.optionalField 2 decodeGenre
+            >> D.field 3 (D.list decodeTrack)
+            >> D.optionalField 4 D.string
 
-        track =
-            D.pair D.string (D.map Duration D.int)
-    in
-    D.map5 Album
-        D.string
-        D.string
-        D.int
-        (D.list track)
-        (D.list link)
+
+encodeTrack : Track -> E.Encoder
+encodeTrack =
+    E.tuple <|
+        E.elems
+            >> E.elem E.string .title
+            >> E.elem E.int .duration
+
+
+decodeTrack : D.Decoder Track
+decodeTrack =
+    D.tuple Track <|
+        D.elems
+            >> D.elem D.string
+            >> D.elem D.int
+
+
+encodeGenre : Genre -> E.Encoder
+encodeGenre genre =
+    case genre of
+        Electronic ->
+            E.int 0
+
+        Pop ->
+            E.int 1
+
+        Jazz ->
+            E.int 2
+
+        Metal ->
+            E.int 3
+
+
+decodeGenre : D.Decoder Genre
+decodeGenre =
+    D.int
+        |> D.andThen
+            (\s ->
+                case s of
+                    0 ->
+                        D.succeed Electronic
+
+                    1 ->
+                        D.succeed Pop
+
+                    2 ->
+                        D.succeed Jazz
+
+                    3 ->
+                        D.succeed Metal
+
+                    _ ->
+                        D.fail
+            )
 ```
 
 ## Changelog
