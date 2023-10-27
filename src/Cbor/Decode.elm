@@ -3,7 +3,7 @@ module Cbor.Decode exposing
     , bool, int, float, string, bytes
     , list, length, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem
-    , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5
+    , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
     , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
     , any, raw
@@ -38,7 +38,7 @@ MessagePack.
 
 ## Mapping
 
-@docs succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5
+@docs succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
 
 
 ## Streaming
@@ -993,6 +993,19 @@ map5 fn (Decoder consumeNext processNext) b c d e =
                         (runDecoder e)
                )
         )
+
+
+{-| Apply a decoder to all elements of a `List`, in order, and yield the
+resulting resulting `List`.
+-}
+traverse : (a -> Decoder b) -> List a -> Decoder (List b)
+traverse fn =
+    List.foldr
+        (\a st ->
+            fn a
+                |> andThen (\b -> map (\bs -> b :: bs) st)
+        )
+        (succeed [])
 
 
 

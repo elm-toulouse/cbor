@@ -325,6 +325,30 @@ suite =
                         |> thenIgnore break
                     )
                     Nothing
+            , test "traverse empty" <|
+                \_ ->
+                    decode (traverse (always int) []) (E.encode <| E.sequence [])
+                        |> Expect.equal (Just [])
+            , hex [ 0xA2, 0x01, 0x01, 0x02, 0x02 ]
+                |> expect
+                    (let
+                        fromCborItem item =
+                            case item of
+                                CborInt i ->
+                                    succeed (CborInt i)
+
+                                CborMap xs ->
+                                    map CborMap <|
+                                        traverse
+                                            (\( a, b ) -> map2 Tuple.pair (fromCborItem a) (fromCborItem b))
+                                            xs
+
+                                _ ->
+                                    fail
+                     in
+                     any |> andThen fromCborItem
+                    )
+                    (Just <| CborMap [ ( CborInt 1, CborInt 1 ), ( CborInt 2, CborInt 2 ) ])
             ]
         , describe "any / raw"
             [ hex [ 0x00 ]
