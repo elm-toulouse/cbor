@@ -3,7 +3,7 @@ module Cbor.Encode exposing
     , bool, int, float, string, bytes, null, undefined
     , float16, float32, float64
     , list, indefiniteList, length, associativeList, dict, size
-    , Step, record, fields, field, optionalField, tuple, elems, elem
+    , Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
     , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
     , any, raw
@@ -38,7 +38,7 @@ MessagePack.
 
 ## Records & Tuples
 
-@docs Step, record, fields, field, optionalField, tuple, elems, elem
+@docs Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
 
 
 ## Streaming
@@ -457,7 +457,7 @@ for detail about usage.
 
 -}
 optionalField : k -> (field -> Encoder) -> (record -> Maybe field) -> Step k record -> Step k record
-optionalField k encodeValue extract ((Step { steps, encodeKey, this }) as step) =
+optionalField k encodeValue extract ((Step { this }) as step) =
     case extract this of
         Nothing ->
             step
@@ -509,6 +509,23 @@ elem encodeElem extract (Step { steps, encodeKey, this }) =
         , encodeKey = encodeKey
         , this = this
         }
+
+
+{-| Optionally encode an element in a tuple. See [`tuple`](#tuple)
+for detail about usage.
+-}
+optionalElem :
+    (elem -> Encoder)
+    -> (tuple -> Maybe elem)
+    -> Step Never tuple
+    -> Step Never tuple
+optionalElem encodeElem extract ((Step { this }) as step) =
+    case extract this of
+        Nothing ->
+            step
+
+        Just e ->
+            elem encodeElem (always e) step
 
 
 

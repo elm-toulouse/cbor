@@ -284,6 +284,12 @@ suite =
             [ encodeFooTuple (Foo 14 True (Just 1337))
                 |> expect
                     [ 0x83, 0x0E, 0xF5, 0x19, 0x05, 0x39 ]
+            , encodeFooTuple (Foo 14 True Nothing)
+                |> expect
+                    [ 0x83, 0x0E, 0xF5, 0xF6 ]
+            , encodeFooTupleAlt (Foo 14 True Nothing)
+                |> expect
+                    [ 0x82, 0x0E, 0xF5 ]
             ]
         ]
 
@@ -320,6 +326,15 @@ encodeFooTuple =
             >> elem int .a0
             >> elem bool .a1
             >> elem (maybe int) .a2
+
+
+encodeFooTupleAlt : Foo -> Encoder
+encodeFooTupleAlt =
+    tuple <|
+        elems
+            >> elem int .a0
+            >> elem bool .a1
+            >> optionalElem int .a2
 
 
 {-| Alias / Shortcut to write test cases
