@@ -149,12 +149,12 @@ keyValue encodeA encodeB ( a, b ) =
 bool : Bool -> Encoder
 bool n =
     Encoder <|
-        case n of
-            False ->
-                E.unsignedInt8 0xF4
+        E.unsignedInt8 <|
+            if n then
+                0xF5
 
-            True ->
-                E.unsignedInt8 0xF5
+            else
+                0xF4
 
 
 {-| Encode integers from `-9007199254740992` (`-2⁵³`) to `9007199254740991` (`2⁵³ - 1`).
