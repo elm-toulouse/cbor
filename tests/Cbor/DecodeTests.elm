@@ -9,47 +9,7 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as E
 import Cbor exposing (CborItem(..))
-import Cbor.Decode
-    exposing
-        ( Decoder
-        , andThen
-        , any
-        , beginBytes
-        , beginDict
-        , beginList
-        , beginString
-        , bool
-        , break
-        , bytes
-        , decode
-        , dict
-        , elem
-        , elems
-        , fail
-        , field
-        , fields
-        , float
-        , ignoreThen
-        , int
-        , length
-        , list
-        , map
-        , map2
-        , map3
-        , map4
-        , map5
-        , maybe
-        , optionalField
-        , raw
-        , record
-        , size
-        , string
-        , succeed
-        , tag
-        , tagged
-        , thenIgnore
-        , tuple
-        )
+import Cbor.Decode exposing (..)
 import Cbor.Tag exposing (Tag(..))
 import Dict
 import Expect
@@ -120,6 +80,8 @@ suite =
                 |> expect string Nothing
             , hex [ 0x7F, 0x61, 0x61, 0x61, 0x62, 0xFF ]
                 |> expect string (Just "ab")
+            , hex [ 0xB0, 0x00, 0x00, 0x00 ]
+                |> expect string Nothing
             ]
         , describe "Major Type 4: an array of data items"
             [ hex [ 0x80 ]
@@ -138,6 +100,12 @@ suite =
                 |> expect (list int) (Just [ 1, 2, 3, 4 ])
             , hex [ 0x9F, 0x81, 0x01, 0x9F, 0x02, 0x02, 0xFF, 0x82, 0x03, 0x03, 0xFF ]
                 |> expect (list (list int)) (Just [ [ 1 ], [ 2, 2 ], [ 3, 3 ] ])
+            , hex [ 0x00 ]
+                |> expect (int |> map (\x -> x + 1)) (Just 1)
+            , hex [ 0x82, 0x00, 0x00 ]
+                |> expect (list (int |> map (\x -> x + 1))) (Just [ 1, 1 ])
+            , hex [ 0x84, 0x01, 0x61, 0x61, 0x02, 0x61, 0x62 ]
+                |> expect (list int) Nothing
             , hex [ 0x80 ]
                 |> expect length (Just 0)
             , hex [ 0x82 ]
@@ -256,30 +224,20 @@ suite =
                 |> expect (maybe bool) (Just (Just False))
             , hex []
                 |> expect (succeed 14) (Just 14)
+            , hex [ 0x84, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect fail Nothing
             , hex []
                 |> expect (maybe (succeed 14)) (Just (Just 14))
             , hex [ 0x01 ]
                 |> expect (maybe <| maybe int) (Just (Just (Just 1)))
-            , hex [ 0x00 ]
-                |> expect (int |> map (\x -> x + 1)) (Just 1)
             , hex []
                 |> expect (maybe (succeed 1 |> andThen (\n -> succeed (n + 1)))) (Just (Just 2))
-            , hex [ 0x84, 0x00, 0x00, 0x00, 0x00 ]
-                |> expect fail Nothing
-            , hex [ 0xB0, 0x00, 0x00, 0x00 ]
-                |> expect string Nothing
             , hex [ 0x00, 0x00 ]
                 |> expect (int |> andThen (\_ -> fail) |> andThen succeed) Nothing
-            , hex [ 0x82, 0x00, 0x00 ]
-                |> expect (list (int |> map (\x -> x + 1))) (Just [ 1, 1 ])
             , hex [ 0x83, 0x00, 0x00, 0x00 ]
                 |> expect (list (int |> andThen (\_ -> succeed 1))) (Just [ 1, 1, 1 ])
             , hex [ 0x9F, 0x00, 0x00, 0x00, 0x00, 0xFF ]
                 |> expect (list (int |> andThen (\_ -> succeed 1))) (Just [ 1, 1, 1, 1 ])
-            , hex [ 0x9F, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF ]
-                |> expect (list (succeed 1)) (Just [ 1, 1, 1, 1, 1 ])
-            , hex [ 0x84, 0x01, 0x61, 0x61, 0x02, 0x61, 0x62 ]
-                |> expect (list int) Nothing
             , hex [ 0x83, 0xF6, 0x01, 0x02 ]
                 |> expect (list <| maybe int) (Just [ Nothing, Just 1, Just 2 ])
             , hex [ 0x01 ]

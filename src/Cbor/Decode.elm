@@ -57,7 +57,7 @@ MessagePack.
 
 -}
 
-import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
+import Bitwise exposing (and, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
@@ -66,7 +66,7 @@ import Cbor exposing (CborItem(..))
 import Cbor.Encode as CE
 import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
-import Tuple exposing (first)
+import Tuple
 
 
 
@@ -78,7 +78,7 @@ import Tuple exposing (first)
 {-| Describes how to turn a binary CBOR sequence of bytes into any Elm value.
 -}
 type Decoder a
-    = Decoder MajorType (Int -> D.Decoder a)
+    = Decoder (D.Decoder Int) (Int -> D.Decoder a)
 
 
 {-| Turn a binary CBOR sequence of bytes into a nice Elm value.
@@ -97,27 +97,14 @@ or [`undefined`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/
 
 -}
 maybe : Decoder a -> Decoder (Maybe a)
-maybe ((Decoder major payload) as decoder) =
-    let
-        runMaybe a =
+maybe (Decoder consumeNext processNext) =
+    Decoder consumeNext <|
+        \a ->
             if a == 0xF6 || a == 0xF7 then
                 D.succeed Nothing
 
             else
-                D.map Just (continueDecoder a decoder)
-    in
-    Decoder MajorTypePlaceholder <|
-        \x ->
-            case major of
-                MajorTypePlaceholder ->
-                    D.map Just (payload x)
-
-                _ ->
-                    if x == tPLACEHOLDER then
-                        D.unsignedInt8 |> D.andThen runMaybe
-
-                    else
-                        runMaybe x
+                D.map Just (processNext a)
 
 
 
@@ -135,7 +122,7 @@ maybe ((Decoder major payload) as decoder) =
 -}
 bool : Decoder Bool
 bool =
-    Decoder (MajorType 7) <|
+    consumeNextMajor 7 <|
         \a ->
             if a == 20 then
                 D.succeed False
@@ -167,7 +154,7 @@ int =
     -- sequence. Since Elm conflates representation of unsigned and negative
     -- integer into one 'int' type, we have to define an ad-hoc decoder for
     -- the major types here to handle both the Major type 0 and 1.
-    Decoder MajorTypeInPayload
+    Decoder D.unsignedInt8
         (\a ->
             if shiftRightBy 5 a == 0 then
                 unsigned a
@@ -193,7 +180,7 @@ expect.
 -}
 float : Decoder Float
 float =
-    Decoder (MajorType 7) <|
+    consumeNextMajor 7 <|
         \a ->
             if a == 25 then
                 D.float16 BE
@@ -214,32 +201,7 @@ one single string. See also [`Cbor.Encode.beginString`](https://package.elm-lang
 -}
 string : Decoder String
 string =
-    let
-        indef es =
-            D.unsignedInt8
-                |> D.andThen
-                    (\a ->
-                        if a == tBREAK then
-                            es
-                                |> List.reverse
-                                |> String.concat
-                                |> D.Done
-                                |> D.succeed
-
-                        else
-                            withMajorType 3 a
-                                |> D.andThen unsigned
-                                |> D.andThen D.string
-                                |> D.map (\e -> D.Loop (e :: es))
-                    )
-    in
-    Decoder (MajorType 3) <|
-        \a ->
-            if a == tBEGIN then
-                D.loop [] indef
-
-            else
-                unsigned a |> D.andThen D.string
+    chunks 3 D.string String.concat
 
 
 {-| Decode a bunch bytes into [`Bytes`](https://package.elm-lang.org/packages/elm/bytes/latest/Bytes#Bytes).
@@ -248,6 +210,18 @@ one single byte string. See also [`Cbor.Encode.beginBytes`](https://package.elm-
 -}
 bytes : Decoder Bytes
 bytes =
+    chunks 2 D.bytes (List.map E.bytes >> E.sequence >> E.encode)
+
+
+{-| Decode string-like structures ensuring that long strings split over multiple
+chunks are aggregated
+-}
+chunks :
+    Int
+    -> (Int -> D.Decoder str)
+    -> (List str -> str)
+    -> Decoder str
+chunks majorType chunk mappend =
     let
         indef es =
             D.unsignedInt8
@@ -256,26 +230,24 @@ bytes =
                         if a == tBREAK then
                             es
                                 |> List.reverse
-                                |> List.map E.bytes
-                                |> E.sequence
-                                |> E.encode
+                                |> mappend
                                 |> D.Done
                                 |> D.succeed
 
                         else
-                            withMajorType 2 a
+                            payloadForMajor majorType a
                                 |> D.andThen unsigned
-                                |> D.andThen D.bytes
+                                |> D.andThen chunk
                                 |> D.map (\e -> D.Loop (e :: es))
                     )
     in
-    Decoder (MajorType 2) <|
+    consumeNextMajor majorType <|
         \a ->
             if a == tBEGIN then
                 D.loop [] indef
 
             else
-                unsigned a |> D.andThen D.bytes
+                unsigned a |> D.andThen chunk
 
 
 
@@ -294,47 +266,15 @@ bytes =
 
 -}
 list : Decoder a -> Decoder (List a)
-list ((Decoder major payload) as inner) =
-    let
-        finite ( n, es ) =
-            if n <= 0 then
-                es |> List.reverse |> D.Done |> D.succeed
-
-            else
-                runDecoder inner |> D.map (\e -> D.Loop ( n - 1, e :: es ))
-
-        indef es =
-            D.unsignedInt8
-                |> D.andThen
-                    (\a ->
-                        if a == tBREAK then
-                            es |> List.reverse |> D.Done |> D.succeed
-
-                        else
-                            continueDecoder a inner
-                                |> D.map (\e -> D.Loop (e :: es))
-                    )
-    in
-    Decoder (MajorType 4) <|
-        \a ->
-            if a == tBEGIN then
-                D.loop [] indef
-
-            else
-                unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
+list (Decoder consumeNext processNext) =
+    foldable 4 consumeNext processNext
 
 
 {-| Decode only the length of a (definite) CBOR array.
 -}
 length : Decoder Int
 length =
-    Decoder (MajorType 4) <|
-        \t ->
-            if t == tBEGIN then
-                D.fail
-
-            else
-                unsigned t
+    definiteLength 4
 
 
 {-| Decode an CBOR map of pairs of data-items into an Elm [`Dict`](https://package.elm-lang.org/packages/elm/core/latest/Dict#Dict).
@@ -356,13 +296,7 @@ dict key value =
 -}
 size : Decoder Int
 size =
-    Decoder (MajorType 5) <|
-        \t ->
-            if t == tBEGIN then
-                D.fail
-
-            else
-                unsigned t
+    definiteLength 5
 
 
 {-| Decode a CBOR map as an associative list, where keys and values can be arbitrary CBOR.
@@ -370,35 +304,71 @@ If keys are [`comparable`](https://package.elm-lang.org/packages/elm/core/latest
 you should prefer [`dict`](#dict) to this primitive.
 -}
 associativeList : Decoder k -> Decoder v -> Decoder (List ( k, v ))
-associativeList key value =
+associativeList (Decoder consumeNextKey processNextKey) value =
+    foldable 5
+        consumeNextKey
+        (\key ->
+            D.map2
+                Tuple.pair
+                (processNextKey key)
+                (runDecoder value)
+        )
+
+
+{-| A re-usable generic encoder for list-like data structures. This decoder
+ensures to seamlessly decode definite and indefinite structures.
+-}
+foldable :
+    Int
+    -> D.Decoder Int
+    -> (Int -> D.Decoder a)
+    -> Decoder (List a)
+foldable majorType consumeNext processNext =
     let
-        finite ( n, es ) =
+        indef es =
+            consumeNext
+                |> D.andThen
+                    (\a ->
+                        if a == tBREAK then
+                            es
+                                |> List.reverse
+                                |> D.Done
+                                |> D.succeed
+
+                        else
+                            processNext a
+                                |> D.map (\e -> D.Loop (e :: es))
+                    )
+
+        def ( n, es ) =
             if n <= 0 then
                 es |> List.reverse |> D.Done |> D.succeed
 
             else
-                D.map2 Tuple.pair (runDecoder key) (runDecoder value)
+                consumeNext
+                    |> D.andThen processNext
                     |> D.map (\e -> D.Loop ( n - 1, e :: es ))
-
-        indef es =
-            D.unsignedInt8
-                |> D.andThen
-                    (\a ->
-                        if a == tBREAK then
-                            es |> List.reverse |> D.Done |> D.succeed
-
-                        else
-                            D.map2 Tuple.pair (continueDecoder a key) (runDecoder value)
-                                |> D.map (\e -> D.Loop (e :: es))
-                    )
     in
-    Decoder (MajorType 5) <|
+    consumeNextMajor majorType <|
         \a ->
             if a == tBEGIN then
                 D.loop [] indef
 
             else
-                unsigned a |> D.andThen (\n -> D.loop ( n, [] ) finite)
+                unsigned a |> D.andThen (\n -> D.loop ( n, [] ) def)
+
+
+{-| A decoder for definite length or size.
+-}
+definiteLength : Int -> Decoder Int
+definiteLength majorType =
+    consumeNextMajor majorType <|
+        \a ->
+            if a == tBEGIN then
+                D.fail
+
+            else
+                unsigned a
 
 
 
@@ -454,7 +424,7 @@ CBOR but are expected to be homogeneous across the record.
 -}
 record : Decoder k -> steps -> (Step k steps -> Decoder (Step k record)) -> Decoder record
 record decodeKey steps decodeRecord =
-    Decoder (MajorType 5)
+    consumeNextMajor 5
         (\tFirst ->
             -- Here follows an indefinite structure.
             if tFirst == tBEGIN then
@@ -533,7 +503,7 @@ See [`record`](#record) for detail about usage.
 -}
 optionalField : k -> Decoder field -> Decoder (Step k (Maybe field -> steps)) -> Decoder (Step k steps)
 optionalField want v =
-    -- Optional fields are ... complicated. There are two issues:
+    -- Optional fields are ... complicated. There are three issues:
     --
     -- 1. We need to the decode the next key, but it might not be
     --    the key we are waiting for. In such case, we mustn't fail
@@ -572,15 +542,21 @@ optionalField want v =
                                 succeed ignoreField
 
                             else
-                                Decoder MajorTypeInPayload <|
+                                let
+                                    (Decoder decodeKey processKey) =
+                                        st.decodeKey
+                                in
+                                Decoder decodeKey <|
                                     \t ->
                                         if t == tBREAK then
-                                            case ignoreField of
-                                                Step { k, steps, decodeKey } ->
-                                                    D.succeed <| Step { k = k, steps = steps, size = Indefinite True, decodeKey = decodeKey }
+                                            let
+                                                (Step stNext) =
+                                                    ignoreField
+                                            in
+                                            D.succeed <| Step { stNext | size = Indefinite True }
 
                                         else
-                                            st.decodeKey |> andThen decodeField |> continueDecoder t
+                                            processKey t |> D.andThen (decodeField >> runDecoder)
 
                         Just got ->
                             decodeField got
@@ -619,7 +595,7 @@ optionalField want v =
 -}
 tuple : steps -> (Step Never steps -> Decoder (Step Never tuple)) -> Decoder tuple
 tuple steps decodeTuple =
-    Decoder (MajorType 4) <|
+    consumeNextMajor 4 <|
         \tFirst ->
             if tFirst == tBEGIN then
                 Step
@@ -634,7 +610,7 @@ tuple steps decodeTuple =
                             -- When decoding indefinite-length *tuples*, we
                             -- never decode the final break byte. So we must
                             -- ensure to do it here.
-                            Decoder MajorTypeInPayload <|
+                            Decoder D.unsignedInt8 <|
                                 \tLast ->
                                     if tLast == tBREAK then
                                         D.succeed st.steps
@@ -736,7 +712,7 @@ verifying that the tag matches what you expect.
 -}
 tag : Decoder Tag
 tag =
-    Decoder (MajorType 6) <|
+    consumeNextMajor 6 <|
         unsigned
             >> D.map
                 (\t ->
@@ -835,7 +811,7 @@ This particularly handy when used in combination with [`andThen`](#andThen).
 -}
 succeed : a -> Decoder a
 succeed a =
-    Decoder MajorTypePlaceholder (\_ -> D.succeed a)
+    Decoder (D.succeed (shiftLeftBy 5 28)) (always <| D.succeed a)
 
 
 {-| A decoder that always fail.
@@ -847,7 +823,7 @@ This is particularly handy when used in combination with [`andThen`](#andThen)
 -}
 fail : Decoder a
 fail =
-    Decoder MajorTypePlaceholder (\_ -> D.fail)
+    Decoder D.fail (always D.fail)
 
 
 {-| Decode something and then use that information to decode something else.
@@ -867,8 +843,10 @@ This is useful when a ['Decoder'](#Decoder) depends on a value held by another d
 
 -}
 andThen : (a -> Decoder b) -> Decoder a -> Decoder b
-andThen fn a =
-    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.andThen (fn >> runDecoder))
+andThen fn (Decoder consumeNext processNext) =
+    Decoder
+        consumeNext
+        (processNext >> D.andThen (fn >> runDecoder))
 
 
 {-| Decode something and then another thing, but only continue with the second
@@ -905,8 +883,10 @@ thenIgnore ignored a =
 
 -}
 map : (a -> value) -> Decoder a -> Decoder value
-map fn a =
-    Decoder MajorTypePlaceholder (\x -> runOrContinue x a |> D.map fn)
+map fn (Decoder consumeNext processNext) =
+    Decoder
+        consumeNext
+        (processNext >> D.map fn)
 
 
 {-| Try two decoders and then combine the result. Can be used to decode objects
@@ -924,12 +904,15 @@ constructor.
 
 -}
 map2 : (a -> b -> value) -> Decoder a -> Decoder b -> Decoder value
-map2 fn a b =
-    Decoder MajorTypePlaceholder <|
-        \x ->
-            D.map2 fn
-                (runOrContinue x a)
-                (runDecoder b)
+map2 fn (Decoder consumeNext processNext) b =
+    Decoder consumeNext
+        (processNext
+            >> (\a ->
+                    D.map2 fn
+                        a
+                        (runDecoder b)
+               )
+        )
 
 
 {-| Try three decoders and then combine the result. Can be used to decode
@@ -952,13 +935,16 @@ map3 :
     -> Decoder b
     -> Decoder c
     -> Decoder value
-map3 fn a b c =
-    Decoder MajorTypePlaceholder <|
-        \x ->
-            D.map3 fn
-                (runOrContinue x a)
-                (runDecoder b)
-                (runDecoder c)
+map3 fn (Decoder consumeNext processNext) b c =
+    Decoder consumeNext
+        (processNext
+            >> (\a ->
+                    D.map3 fn
+                        a
+                        (runDecoder b)
+                        (runDecoder c)
+               )
+        )
 
 
 {-| Try four decoders and then combine the result. See also 'map3' for some
@@ -971,14 +957,17 @@ map4 :
     -> Decoder c
     -> Decoder d
     -> Decoder value
-map4 fn a b c d =
-    Decoder MajorTypePlaceholder <|
-        \x ->
-            D.map4 fn
-                (runOrContinue x a)
-                (runDecoder b)
-                (runDecoder c)
-                (runDecoder d)
+map4 fn (Decoder consumeNext processNext) b c d =
+    Decoder consumeNext
+        (processNext
+            >> (\a ->
+                    D.map4 fn
+                        a
+                        (runDecoder b)
+                        (runDecoder c)
+                        (runDecoder d)
+               )
+        )
 
 
 {-| Try five decoders and then combine the result. See also 'map3' for some
@@ -992,15 +981,18 @@ map5 :
     -> Decoder d
     -> Decoder e
     -> Decoder value
-map5 fn a b c d e =
-    Decoder MajorTypePlaceholder <|
-        \x ->
-            D.map5 fn
-                (runOrContinue x a)
-                (runDecoder b)
-                (runDecoder c)
-                (runDecoder d)
-                (runDecoder e)
+map5 fn (Decoder consumeNext processNext) b c d e =
+    Decoder consumeNext
+        (processNext
+            >> (\a ->
+                    D.map5 fn
+                        a
+                        (runDecoder b)
+                        (runDecoder c)
+                        (runDecoder d)
+                        (runDecoder e)
+               )
+        )
 
 
 
@@ -1017,9 +1009,9 @@ This is useful in combination with [`ignoreThen`](#ignoreThen) and
 -}
 beginBytes : Decoder ()
 beginBytes =
-    Decoder (MajorType 2) <|
-        \t ->
-            if t == tBEGIN then
+    consumeNextMajor 2 <|
+        \a ->
+            if a == tBEGIN then
                 D.succeed ()
 
             else
@@ -1034,9 +1026,9 @@ This is useful in combination with [`ignoreThen`](#ignoreThen) and
 -}
 beginString : Decoder ()
 beginString =
-    Decoder (MajorType 3) <|
-        \t ->
-            if t == tBEGIN then
+    consumeNextMajor 3 <|
+        \a ->
+            if a == tBEGIN then
                 D.succeed ()
 
             else
@@ -1051,9 +1043,9 @@ This is useful in combination with [`ignoreThen`](#ignoreThen) and
 -}
 beginList : Decoder ()
 beginList =
-    Decoder (MajorType 4) <|
-        \t ->
-            if t == tBEGIN then
+    consumeNextMajor 4 <|
+        \a ->
+            if a == tBEGIN then
                 D.succeed ()
 
             else
@@ -1068,9 +1060,9 @@ This is useful in combination with [`ignoreThen`](#ignoreThen) and
 -}
 beginDict : Decoder ()
 beginDict =
-    Decoder (MajorType 5) <|
-        \t ->
-            if t == tBEGIN then
+    consumeNextMajor 5 <|
+        \a ->
+            if a == tBEGIN then
                 D.succeed ()
 
             else
@@ -1083,9 +1075,9 @@ beginDict =
 -}
 break : Decoder ()
 break =
-    Decoder MajorTypeInPayload <|
-        \t ->
-            if t == tBREAK then
+    Decoder D.unsignedInt8 <|
+        \a ->
+            if a == tBREAK then
                 D.succeed ()
 
             else
@@ -1106,7 +1098,7 @@ for debugging or to inspect some unknown Cbor data.
 -}
 any : Decoder CborItem
 any =
-    Decoder MajorTypeInPayload <|
+    Decoder D.unsignedInt8 <|
         \a ->
             let
                 majorType =
@@ -1116,8 +1108,8 @@ any =
                     and a 31
 
                 apply : Decoder a -> Int -> D.Decoder a
-                apply (Decoder _ decoder) i =
-                    decoder i
+                apply (Decoder _ processNext) i =
+                    processNext i
             in
             if majorType == 0 then
                 D.map CborInt <| apply int a
@@ -1126,19 +1118,19 @@ any =
                 D.map CborInt <| apply int a
 
             else if majorType == 2 then
-                D.map CborBytes <| apply bytes payload
+                D.map CborBytes <| apply bytes a
 
             else if majorType == 3 then
-                D.map CborString <| apply string payload
+                D.map CborString <| apply string a
 
             else if majorType == 4 then
-                D.map CborList <| apply (list any) payload
+                D.map CborList <| apply (list any) a
 
             else if majorType == 5 then
-                D.map CborMap <| apply (associativeList any any) payload
+                D.map CborMap <| apply (associativeList any any) a
 
             else if majorType == 6 then
-                D.map CborTag <| apply tag payload
+                D.map CborTag <| apply tag a
 
             else if payload == 20 then
                 D.succeed <| CborBool False
@@ -1153,7 +1145,7 @@ any =
                 D.succeed <| CborUndefined
 
             else if List.member payload [ 25, 26, 27 ] then
-                D.map CborFloat <| apply float payload
+                D.map CborFloat <| apply float a
 
             else
                 D.fail
@@ -1189,66 +1181,16 @@ tBREAK =
     0xFF
 
 
-{-| Marks a top-level combinator which no major type. 30 is an unassigned value
-for major types (nor a special case like 31 = 'break'). So, we use it as a
-special marker to indicate that a special decoder is in a top-level position.
--}
-tPLACEHOLDER : Int
-tPLACEHOLDER =
-    30
-
-
-{-| Run a decoder in sequence, getting first the major type, and then the
-payload. Note that, separating the definition of the payload and the major type
-allows us to implement various things like indefinite list or maybes, where, we
-can start to peak at the next byte and take action depending on its value.
-This is only possible because all items are prefixed with a major type
-announcing what they are!
--}
 runDecoder : Decoder a -> D.Decoder a
-runDecoder (Decoder major payload) =
-    case major of
-        MajorTypePlaceholder ->
-            payload tPLACEHOLDER
-
-        MajorTypeInPayload ->
-            D.unsignedInt8 |> D.andThen payload
-
-        MajorType m ->
-            D.unsignedInt8 |> D.andThen (withMajorType m) |> D.andThen payload
+runDecoder (Decoder consumeNext processNext) =
+    consumeNext |> D.andThen processNext
 
 
-{-| Continue a decoder with the given 'Int' token parsed outside of the decoder.
-This happens for indefinite data-structure where we have to first peak at the
-next token before knowing which parser has to be ran (if any).
--}
-continueDecoder : Int -> Decoder a -> D.Decoder a
-continueDecoder a (Decoder major payload) =
-    case major of
-        MajorTypePlaceholder ->
-            payload a
-
-        MajorTypeInPayload ->
-            payload a
-
-        MajorType m ->
-            withMajorType m a |> D.andThen payload
-
-
-{-| In some cases (like 'andThen' or 'map'), we don't have enough context to
-figure out whether we need to consume the next major type token or not. When a
-decoder has already been ran and has yield a value /= tPLACEHOLDER, we can just
-continue decoding with that particular token. Otherwise, we haven't yet consumed
-a token for the major type and we should simply run the actual decoder instead
-of continuing it.
--}
-runOrContinue : Int -> Decoder a -> D.Decoder a
-runOrContinue a d =
-    if a == tPLACEHOLDER then
-        runDecoder d
-
-    else
-        continueDecoder a d
+consumeNextMajor : Int -> (Byte -> D.Decoder a) -> Decoder a
+consumeNextMajor majorType processNext =
+    Decoder
+        D.unsignedInt8
+        (payloadForMajor majorType >> D.andThen processNext)
 
 
 {-| Decode a major type and return the additional data if it matches. Major
@@ -1262,40 +1204,13 @@ additional value depends on the major type itself.
                      2⁷ | 2⁶ | 2⁵ | 2⁴ | 2³ | 2² | 2¹ | 2⁰
 
 -}
-withMajorType : Int -> Int -> D.Decoder Int
-withMajorType k a =
-    if shiftRightBy 5 a == k then
-        D.succeed (and a 31)
+payloadForMajor : Int -> Byte -> D.Decoder Int
+payloadForMajor majorType byte =
+    if shiftRightBy 5 byte == majorType then
+        D.succeed (and byte 31)
 
     else
         D.fail
-
-
-{-| Internal representation of Major type
--}
-type MajorType
-    = MajorType Int
-    | MajorTypeInPayload
-    | MajorTypePlaceholder
-
-
-{-| Int in Elm and JavaScript are safe in the range: -2^53 to 2^53 - 1, though,
-bitwise operation works only fine for 32-bit int. As a consequence, there's no
-bytes decoder for unsignedInt64 as we would need, and we've defined a custom one
-herebelow that makes sure that int are decoded in an acceptable range for elm.
-The parser will fail for values >= 2^53
--}
-unsignedInt53 : Endianness -> D.Decoder Int
-unsignedInt53 e =
-    D.unsignedInt32 e
-        |> D.andThen
-            (\up ->
-                if up > 0x001FFFFF then
-                    D.fail
-
-                else
-                    D.succeed (up * 0x0000000100000000)
-            )
 
 
 {-| Intermediate decoder for decoding an unsigned integer. The parameter
@@ -1324,3 +1239,26 @@ unsigned a =
 
     else
         D.fail
+
+
+{-| Int in Elm and JavaScript are safe in the range: -2^53 to 2^53 - 1, though,
+bitwise operation works only fine for 32-bit int. As a consequence, there's no
+bytes decoder for unsignedInt64 as we would need, and we've defined a custom one
+herebelow that makes sure that int are decoded in an acceptable range for elm.
+The parser will fail for values >= 2^53
+-}
+unsignedInt53 : Endianness -> D.Decoder Int
+unsignedInt53 e =
+    D.unsignedInt32 e
+        |> D.andThen
+            (\up ->
+                if up > 0x001FFFFF then
+                    D.fail
+
+                else
+                    D.succeed (up * 0x0000000100000000)
+            )
+
+
+type alias Byte =
+    Int
