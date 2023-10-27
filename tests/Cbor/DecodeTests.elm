@@ -364,7 +364,7 @@ suite =
             , hex [ 0xA1, 0x66, 0x70, 0x61, 0x74, 0x61, 0x74, 0x65, 0x0E ]
                 |> expect any (Just <| CborMap [ ( CborString "patate", CborInt 14 ) ])
             , hex [ 0xD8, 0x2A, 0x0E ]
-                |> expect any (Just <| CborTag <| Unknown 42)
+                |> expect any (Just <| CborTag (Unknown 42) (CborInt 14))
             , hex [ 0x82, 0xF4, 0xF5 ]
                 |> expect (list any) (Just <| [ CborBool False, CborBool True ])
             , hex [ 0xF9, 0x55, 0x22 ]

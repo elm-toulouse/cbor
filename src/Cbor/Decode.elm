@@ -1106,7 +1106,7 @@ break =
 {-| Decode remaining bytes as _any_ [`CborItem`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor#CborItem). This is useful
 for debugging or to inspect some unknown Cbor data.
 
-    D.decode D.any <| E.encode (E.int 14) == Just (CborUnsignedInteger 14)
+    D.decode D.any <| E.encode (E.int 14) == Just (CborInt 14)
 
 -}
 any : Decoder CborItem
@@ -1143,7 +1143,7 @@ any =
                 D.map CborMap <| apply (associativeList any any) a
 
             else if majorType == 6 then
-                D.map CborTag <| apply tag a
+                D.map2 CborTag (apply tag a) (runDecoder any)
 
             else if payload == 20 then
                 D.succeed <| CborBool False

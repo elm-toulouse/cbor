@@ -19,7 +19,7 @@ type CborItem
     | CborString String
     | CborList (List CborItem)
     | CborMap (List ( CborItem, CborItem ))
-    | CborTag Tag
+    | CborTag Tag CborItem
     | CborBool Bool
     | CborFloat Float
     | CborNull

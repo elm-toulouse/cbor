@@ -258,8 +258,8 @@ suite =
                 |> expect [ 0x83, 0x01, 0x02, 0x03 ]
             , any (CborMap [ ( CborInt 1, CborInt 2 ), ( CborInt 3, CborInt 4 ) ])
                 |> expect [ 0xA2, 0x01, 0x02, 0x03, 0x04 ]
-            , any (CborTag EpochDateTime)
-                |> expect [ 0xC1 ]
+            , any (CborTag EpochDateTime (CborInt 0))
+                |> expect [ 0xC1, 0x00 ]
             , list any [ CborBool False, CborBool True, CborNull, CborUndefined ]
                 |> expect [ 0x84, 0xF4, 0xF5, 0xF6, 0xF7 ]
             , any (CborFloat 1.1)

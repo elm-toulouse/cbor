@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.0.0 (2023-10-27)
+
+### Changed
+
+#### Cbor
+
+- `CborItem.CborTag` now necessarily carries another tagged `CborItem`.
+
 ## v2.1.0 (2023-10-27)
 
 ### Added

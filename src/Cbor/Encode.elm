@@ -647,8 +647,8 @@ any item =
         CborMap xs ->
             associativeList any any xs
 
-        CborTag t ->
-            tag t
+        CborTag t x ->
+            sequence [ tag t, any x ]
 
         CborBool b ->
             bool b
