@@ -2,7 +2,7 @@ module Cbor.Encode exposing
     ( Encoder, encode, sequence, maybe, keyValue
     , bool, int, float, string, bytes, null, undefined
     , float16, float32, float64
-    , list, length, associativeList, dict, size
+    , list, indefiniteList, length, associativeList, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem
     , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
@@ -33,7 +33,7 @@ MessagePack.
 
 ## Simple Data-Structures
 
-@docs list, length, associativeList, dict, size
+@docs list, indefiniteList, length, associativeList, dict, size
 
 
 ## Records & Tuples
@@ -68,9 +68,8 @@ of the string, is known. (The application of this is often referred to as
 
 -}
 
-import Bitwise exposing (and, or, shiftLeftBy, shiftRightBy)
+import Bitwise exposing (or, shiftLeftBy)
 import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Encode as E
 import Cbor exposing (CborItem(..))
@@ -320,6 +319,13 @@ list e xs =
     sequence <|
         Encoder (unsigned 4 (List.length xs))
             :: List.map e xs
+
+
+{-| Turn a `List` into a (indefinite) CBOR array
+-}
+indefiniteList : (a -> Encoder) -> List a -> Encoder
+indefiniteList fn =
+    List.foldr (\x xs -> fn x :: xs) [ break ] >> (::) beginList >> sequence
 
 
 {-| Encode a (definite) list length only. This may be useful to stream a

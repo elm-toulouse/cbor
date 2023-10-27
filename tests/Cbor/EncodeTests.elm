@@ -10,42 +10,7 @@ import Bytes exposing (Bytes, width)
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Cbor exposing (CborItem(..))
-import Cbor.Encode
-    exposing
-        ( Encoder
-        , any
-        , beginBytes
-        , beginDict
-        , beginList
-        , beginString
-        , bool
-        , break
-        , bytes
-        , dict
-        , elem
-        , elems
-        , encode
-        , field
-        , fields
-        , float
-        , float16
-        , float32
-        , float64
-        , int
-        , length
-        , list
-        , maybe
-        , null
-        , optionalField
-        , raw
-        , record
-        , sequence
-        , size
-        , string
-        , tagged
-        , tuple
-        , undefined
-        )
+import Cbor.Encode exposing (..)
 import Cbor.Tag exposing (Tag(..))
 import Dict
 import Expect
@@ -168,6 +133,8 @@ suite =
                         ++ [ 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x18 ]
                         ++ [ 0x18, 0x19, 0xFF ]
                     )
+            , indefiniteList int [ 1, 2, 3 ]
+                |> expect [ 0x9F, 0x01, 0x02, 0x03, 0xFF ]
             ]
         , describe "Major Type 5: a map of pairs of data-items"
             [ dict int int (Dict.fromList [])
@@ -299,6 +266,8 @@ suite =
                 |> expect [ 0xFB, 0x3F, 0xF1, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9A ]
             , raw (toBytes [ 0x82, 0x00, 0x01 ])
                 |> expect [ 0x82, 0x00, 0x01 ]
+            , indefiniteList int []
+                |> expect [ 0x9F, 0xFF ]
             ]
         , describe "Records"
             [ encodeFooCompact (Foo 14 True (Just 1337))
