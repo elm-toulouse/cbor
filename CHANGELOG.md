@@ -1,5 +1,45 @@
 # Changelog
 
+## v2.1.0 (2023-10-27)
+
+### Added
+
+#### Cbor.Decode
+
+- New primitive `traverse`:
+
+  ```elm
+  traverse :
+      (a -> Decoder b)
+      -> List a
+      -> Decoder (List b)
+  ```
+
+#### Cbor.Encode
+
+- New primitive `indefiniteList`:
+
+  ```elm
+  indefiniteList :
+      (a -> Encoder) -> List a -> Encoder
+  ```
+
+- New primitive `optionalElem`:
+
+  ```elm
+  optionalElem :
+      (elem -> Encoder)
+      -> (tuple -> Maybe elem)
+      -> Step Never tuple
+      -> Step Never tuple
+    ```
+
+### Fixed
+
+- Reviewed internal implementation of Cbor.Decode to, in particular, fix an
+  issue with `Cbor.Decode.andThen` sometimes decoding more bytes than expected
+  and causing decoder to fail prematurely.
+
 ## v2.0.0 (2023-10-22)
 
 ### Added

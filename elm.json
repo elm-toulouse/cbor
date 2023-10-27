@@ -3,7 +3,7 @@
     "name": "elm-toulouse/cbor",
     "summary": "RFC 7049 - Concise Binary Object Representation (CBOR)",
     "license": "MIT",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "exposed-modules": [
         "Cbor",
         "Cbor.Encode",
@@ -17,7 +17,7 @@
         "elm-toulouse/float16": "1.0.0 <= v < 2.0.0"
     },
     "test-dependencies": {
-        "elm-explorations/test": "2.1.2 <= v < 3.0.0",
-        "elm/random": "1.0.0 <= v < 2.0.0"
+        "elm/random": "1.0.0 <= v < 2.0.0",
+        "elm-explorations/test": "2.1.2 <= v < 3.0.0"
     }
 }
