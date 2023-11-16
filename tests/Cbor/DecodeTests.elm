@@ -170,6 +170,25 @@ suite =
                     (Just ( StandardDateTime, "2013-03-21T20:04:00Z" ))
             , hex [ 0xC1, 0x1A, 0x51, 0x4B, 0x67, 0xB0 ]
                 |> expect (tagged EpochDateTime int) (Just ( EpochDateTime, 1363896240 ))
+
+            -- start natural integer
+            -- 0
+            , hex [ 0x00 ]
+                |> expect nat (Just <| Tuple.second <| hex [ 0x00 ])
+
+            -- 1337
+            , hex [ 0x19, 0x05, 0x39 ]
+                |> expect nat (Just <| Tuple.second <| hex [ 0x05, 0x39 ])
+
+            -- 2^64
+            , hex [ 0xC2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect nat (Just <| Tuple.second <| hex [ 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ])
+
+            -- -1
+            , hex [ 0x2D ]
+                |> expect nat Nothing
+
+            -- end natural integer
             , hex [ 0xD7, 0x44, 0x01, 0x02, 0x03, 0x04 ]
                 |> expect (tagged Base16Conversion bytes) (Just ( Base16Conversion, Tuple.second <| hex [ 0x01, 0x02, 0x03, 0x04 ] ))
             , hex [ 0xD8, 0x18, 0x45, 0x64, 0x49, 0x45, 0x54, 0x46 ]

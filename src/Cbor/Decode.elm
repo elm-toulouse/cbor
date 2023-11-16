@@ -1,6 +1,6 @@
 module Cbor.Decode exposing
     ( Decoder, decode, maybe
-    , bool, int, float, string, bytes
+    , bool, int, float, string, bytes, nat
     , list, length, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
@@ -23,7 +23,7 @@ MessagePack.
 
 ## Primitives
 
-@docs bool, int, float, string, bytes
+@docs bool, int, float, string, bytes, nat
 
 
 ## Data Structures
@@ -1271,6 +1271,78 @@ unsignedInt53 e =
                 else
                     D.succeed (up * 0x0000000100000000)
             )
+
+
+{-| Decode a natural integer of any size (0 to +infinity).
+
+    -- 0
+    D.decode D.nat Bytes<0x00> == Just Bytes<0x00>
+
+    -- 1337
+    D.decode D.nat Bytes<0x19, 0x05, 0x39> == Just Bytes<0x05, 0x39>
+
+    -- 2^64
+    D.decode D.nat Bytes<0xC2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>
+        == Just Bytes<0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>
+
+    -- -14
+    D.decode D.nat Bytes<0x2D> == Nothing
+
+-}
+nat : Decoder Bytes
+nat =
+    Decoder D.unsignedInt8
+        (\a ->
+            -- major type, payload
+            case ( shiftRightBy 5 a, and a 0x1F ) of
+                -- 0: positive integer
+                ( 0, _ ) ->
+                    unsignedIntBytes a
+
+                -- 1: negative integer
+                ( 1, _ ) ->
+                    D.fail
+
+                -- 6: tag, 2: positive bignum
+                -- Encoded as bytes
+                ( 6, 2 ) ->
+                    runDecoder bytes
+
+                -- 6: tag, 3: negative bignum
+                ( 6, 3 ) ->
+                    D.fail
+
+                _ ->
+                    D.fail
+        )
+
+
+{-| Intermediate decoder for decoding an unsigned integer as bytes.
+The parameter represents the 5-bit additional information that goes with the major type and is
+either the integer itself (for additional information values 0 through 23) or
+the length of additional data. Additional information 24 means the value is
+represented in an additional uint8, 25 means a uint16, 26 means a uint32,
+and 27 means a uint64.
+-}
+unsignedIntBytes : Int -> D.Decoder Bytes
+unsignedIntBytes a =
+    if a < 24 then
+        D.succeed (E.encode <| E.unsignedInt8 a)
+
+    else if a == 24 then
+        D.bytes 1
+
+    else if a == 25 then
+        D.bytes 2
+
+    else if a == 26 then
+        D.bytes 4
+
+    else if a == 27 then
+        D.bytes 8
+
+    else
+        D.fail
 
 
 type alias Byte =
