@@ -1,8 +1,8 @@
-module Cbor exposing (CborItem(..))
+module Cbor exposing (CborItem(..), Sign(..))
 
 {-|
 
-@docs CborItem
+@docs CborItem, Sign
 
 -}
 
@@ -24,3 +24,11 @@ type CborItem
     | CborFloat Float
     | CborNull
     | CborUndefined
+
+
+{-| A sum-type for representing signs of integer numbers. By convention, 0 is
+always `Positive`.
+-}
+type Sign
+    = Positive
+    | Negative
