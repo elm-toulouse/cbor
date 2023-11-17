@@ -1,6 +1,6 @@
 module Cbor.Decode exposing
     ( Decoder, decode, maybe
-    , bool, int, float, string, bytes
+    , bool, int, bigint, float, string, bytes
     , list, length, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
@@ -23,7 +23,7 @@ MessagePack.
 
 ## Primitives
 
-@docs bool, int, float, string, bytes
+@docs bool, int, bigint, float, string, bytes
 
 
 ## Data Structures
@@ -62,7 +62,7 @@ import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode as D
 import Bytes.Encode as E
 import Bytes.Floating.Decode as D
-import Cbor exposing (CborItem(..))
+import Cbor exposing (CborItem(..), Sign(..))
 import Cbor.Encode as CE
 import Cbor.Tag exposing (Tag(..))
 import Dict exposing (Dict)
@@ -164,6 +164,149 @@ int =
 
             else
                 D.fail
+        )
+
+
+{-| Decode an unbounded integer as a big-endian bytes sequence. This
+is particularly useful for decoding large integer values which are beyond the
+max and min safe integer values allowed by Elm.
+
+This can also be used to decode tagged [`PositiveBigNum`](../Cbor-Tag#Tag) and [`NegativeBigNum`](../Cbor-Tag#Tag)
+integer values following the tag semantic specified in [RFC-7049](https://www.rfc-editor.org/rfc/rfc7049#appendix-B).
+
+    -- 0
+    D.decode D.bigint Bytes<0x00>
+        == Just (Positive, Bytes<0x00>)
+
+    -- 1337
+    D.decode D.bigint Bytes<0x19, 0x05, 0x39>
+        == Just (Positive, Bytes<0x05, 0x39>)
+
+    -- -14
+    D.decode D.bigint Bytes<0x2D>
+        == Just (Negative, Bytes<0x0E>)
+
+    -- -1536
+    D.decode D.bigint Bytes<0x39, 0x05, 0xFF>
+        == Just <Negative, Bytes<0x06, 0x00>
+
+    -- 2^53
+    D.decode D.bigint Bytes<0x1B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>
+        == Just (Positive, Bytes<0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>)
+
+    -- 2^64
+    D.decode D.bigint Bytes<0xC2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>
+        == Just (Positive, Bytes<0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>)
+
+-}
+bigint : Decoder ( Sign, Bytes )
+bigint =
+    let
+        positive =
+            D.map (\n -> ( Positive, n ))
+
+        negative =
+            D.map (\n -> ( Negative, n ))
+
+        increment bs =
+            let
+                width =
+                    Bytes.width bs
+            in
+            bs
+                |> D.decode
+                    (D.loop ( width, [] )
+                        (\( sz, xs ) ->
+                            if sz > 0 then
+                                D.unsignedInt8 |> D.map (\x -> D.Loop ( sz - 1, x :: xs ))
+
+                            else
+                                D.succeed (D.Done xs)
+                        )
+                    )
+                |> Maybe.map
+                    (List.foldl
+                        (\x ( done, ys ) ->
+                            if done then
+                                ( done
+                                , E.unsignedInt8 x :: ys
+                                )
+
+                            else if x >= 255 then
+                                ( done
+                                , E.unsignedInt8 0 :: ys
+                                )
+
+                            else
+                                ( True
+                                , E.unsignedInt8 (x + 1) :: ys
+                                )
+                        )
+                        ( False, [] )
+                        >> (\( done, xs ) ->
+                                if done then
+                                    xs
+
+                                else
+                                    -- NOTE: For consistency, if we have to add an extra byte
+                                    -- because we are at a boundary, we choose to still return 2, 4
+                                    -- or 8 bytes for "small" values, padded-left with zeroes.
+                                    -- This way, the API is somewhat symmetric between positive and
+                                    -- negative numbers.
+                                    case width of
+                                        2 ->
+                                            E.unsignedInt8 0 :: E.unsignedInt8 1 :: xs
+
+                                        4 ->
+                                            E.unsignedInt8 0 :: E.unsignedInt8 0 :: E.unsignedInt8 0 :: E.unsignedInt8 1 :: xs
+
+                                        _ ->
+                                            E.unsignedInt8 1 :: xs
+                           )
+                        >> E.sequence
+                        >> E.encode
+                        >> D.succeed
+                    )
+                |> Maybe.withDefault D.fail
+    in
+    Decoder D.unsignedInt8
+        (\a ->
+            case shiftRightBy 5 a of
+                0 ->
+                    -- positive int
+                    payloadForMajor 0 a
+                        |> D.andThen unsignedBytes
+                        |> positive
+
+                1 ->
+                    -- negative int
+                    payloadForMajor 1 a
+                        |> D.andThen unsignedBytes
+                        |> D.andThen increment
+                        |> negative
+
+                6 ->
+                    -- tagged value
+                    let
+                        (Decoder _ processTag) =
+                            tag
+                    in
+                    processTag a
+                        |> D.andThen
+                            (\t ->
+                                case t of
+                                    PositiveBigNum ->
+                                        runDecoder bytes |> positive
+
+                                    NegativeBigNum ->
+                                        runDecoder bytes |> negative
+
+                                    _ ->
+                                        D.fail
+                            )
+
+                _ ->
+                    D.fail
         )
 
 
@@ -1249,6 +1392,31 @@ unsigned a =
 
     else if a == 27 then
         D.map2 (+) (unsignedInt53 BE) (D.unsignedInt32 BE)
+
+    else
+        D.fail
+
+
+{-| Decode int64 integers values as bytes (BE). This is useful in particular when
+values can get in the range of 2^53 -> 2^64 - 1 (resp. -2^64 -> -2^53) which
+aren't safe integer values in Elm
+-}
+unsignedBytes : Int -> D.Decoder Bytes
+unsignedBytes a =
+    if a < 24 then
+        D.succeed (E.encode (E.unsignedInt8 a))
+
+    else if a == 24 then
+        D.bytes 1
+
+    else if a == 25 then
+        D.bytes 2
+
+    else if a == 26 then
+        D.bytes 4
+
+    else if a == 27 then
+        D.bytes 8
 
     else
         D.fail

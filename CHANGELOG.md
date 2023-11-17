@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.1.0 (unreleased)
+
+### Added
+
+#### Cbor
+
+- New data-type `Sign` to represent signed big integer values.
+
+#### Cbor.decode
+
+- New primitive `bigInt`:
+
+  ```elm
+  bigint : Decoder (Sign, Bytes)
+  ```
+
+### Changed
+
+N/A
+
+### Removed
+
+N/A
+
 ## v3.0.0 (2023-10-27)
 
 ### Changed

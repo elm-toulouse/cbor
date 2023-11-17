@@ -8,11 +8,12 @@ which provides bidirectional conversion from raw bytes to CBOR, and vice-versa.
 
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Encode as E
-import Cbor exposing (CborItem(..))
+import Cbor exposing (CborItem(..), Sign(..))
 import Cbor.Decode exposing (..)
 import Cbor.Tag exposing (Tag(..))
 import Dict
 import Expect
+import Hex.Convert as Hex
 import Test exposing (Test, describe, test)
 
 
@@ -42,6 +43,16 @@ suite =
                 |> expect int (Just 9007199254740991)
             , hex [ 0x1B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
                 |> expect int Nothing
+            , hex [ 0x00 ]
+                |> expectBigInt Positive "0x00"
+            , hex [ 0x18, 0x19 ]
+                |> expectBigInt Positive "0x19"
+            , hex [ 0x19, 0x05, 0x39 ]
+                |> expectBigInt Positive "0x0539"
+            , hex [ 0x1B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                |> expectBigInt Positive "0x0020000000000000"
+            , hex [ 0xC2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                |> expectBigInt Positive "0x010000000000000000"
             ]
         , describe "Major Type 1: a negative integer"
             [ hex [ 0x20 ]
@@ -58,6 +69,14 @@ suite =
                 |> expect int (Just -9007199254740992)
             , hex [ 0x3B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
                 |> expect int Nothing
+            , hex [ 0x2D ]
+                |> expectBigInt Negative "0x0E"
+            , hex [ 0x39, 0x05, 0xFF ]
+                |> expectBigInt Negative "0x0600"
+            , hex [ 0x39, 0xFF, 0xFF ]
+                |> expectBigInt Negative "0x00010000"
+            , hex [ 0xC3, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                |> expectBigInt Negative "0x010000000000000000"
             ]
         , describe "Major Type 2: a byte string"
             [ hex [ 0x40 ]
@@ -451,6 +470,25 @@ expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
 expect decoder output ( readable, input ) =
     test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
         \_ -> input |> decode decoder |> Expect.equal output
+
+
+expectBigInt : Sign -> String -> ( List Int, Bytes ) -> Test
+expectBigInt sign output ( readable, input ) =
+    let
+        signStr =
+            case sign of
+                Positive ->
+                    "+"
+
+                Negative ->
+                    "-"
+    in
+    test (Debug.toString readable ++ " -> " ++ signStr ++ " " ++ Debug.toString output) <|
+        \_ ->
+            input
+                |> decode bigint
+                |> Maybe.map (\( s, bs ) -> ( s, "0x" ++ Hex.toString bs ))
+                |> Expect.equal (Just ( sign, output ))
 
 
 {-| Convert a list of BE unsigned8 to bytes

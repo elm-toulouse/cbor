@@ -18,6 +18,7 @@
     },
     "test-dependencies": {
         "elm/random": "1.0.0 <= v < 2.0.0",
-        "elm-explorations/test": "2.1.2 <= v < 3.0.0"
+        "elm-explorations/test": "2.1.2 <= v < 3.0.0",
+        "jxxcarlson/hex": "4.0.1 <= v < 5.0.0"
     }
 }
