@@ -811,7 +811,11 @@ This particularly handy when used in combination with [`andThen`](#andThen).
 -}
 succeed : a -> Decoder a
 succeed a =
-    Decoder (D.succeed (shiftLeftBy 5 28)) (always <| D.succeed a)
+    let
+        absurd =
+            shiftLeftBy 5 28
+    in
+    Decoder (D.succeed absurd) (always <| D.succeed a)
 
 
 {-| A decoder that always fail.
