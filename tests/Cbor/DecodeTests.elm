@@ -76,7 +76,7 @@ suite =
             , hex [ 0x39, 0xFF, 0xFF ]
                 |> expectBigInt Negative "0x00010000"
             , hex [ 0xC3, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
-                |> expectBigInt Negative "0x010000000000000000"
+                |> expectBigInt Negative "0x010000000000000001"
             ]
         , describe "Major Type 2: a byte string"
             [ hex [ 0x40 ]
