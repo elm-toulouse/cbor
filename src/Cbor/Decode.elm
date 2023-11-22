@@ -208,6 +208,9 @@ bigint =
         negative =
             D.map (\n -> ( Negative, n ))
 
+        -- Increment the bytes by +1
+        -- Adjust the bytes array size
+        increment : Bytes -> D.Decoder Bytes
         increment bs =
             let
                 width =
