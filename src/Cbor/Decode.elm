@@ -302,7 +302,9 @@ bigint =
                                         runDecoder bytes |> positive
 
                                     NegativeBigNum ->
-                                        runDecoder bytes |> negative
+                                        runDecoder bytes
+                                            |> D.andThen increment
+                                            |> negative
 
                                     _ ->
                                         D.fail
