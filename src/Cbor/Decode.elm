@@ -4,6 +4,7 @@ module Cbor.Decode exposing
     , list, length, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
+    , oneOf
     , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
     , any, raw
@@ -39,6 +40,11 @@ MessagePack.
 ## Mapping
 
 @docs succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
+
+
+## Branching
+
+@docs oneOf
 
 
 ## Streaming
@@ -1011,6 +1017,42 @@ traverse fn =
                 |> andThen (\b -> map (\bs -> b :: bs) st)
         )
         (succeed [])
+
+
+
+{-------------------------------------------------------------------------------
+                                 Branching
+-------------------------------------------------------------------------------}
+
+
+{-| Decode something that can have one of many shapes without prior information
+on the correct shape.
+
+    type IntOrString
+        = IntVariant Int
+        | StringVariant String
+
+    intOrString : Decoder IntOrString
+    intOrString =
+        D.oneOf [ D.map IntVariant D.int, D.map StringVariant D.string ]
+
+    Bytes<0x64, 0xF0, 0x9F, 0x8C, 0x88>
+        |> D.decode intOrString
+    --> (Just <| StringVariant "🌈")
+
+-}
+oneOf : List (Decoder a) -> Decoder a
+oneOf alternatives =
+    let
+        absurd =
+            shiftLeftBy 5 28
+    in
+    Decoder (D.succeed absurd) <|
+        (alternatives
+            |> List.map runDecoder
+            |> D.oneOf
+            |> always
+        )
 
 
 

@@ -442,7 +442,22 @@ suite =
             , hex [ 0x9F, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00, 0xF5 ]
                 |> expect decodeFooTuple Nothing
             ]
+        , let
+            intOrString =
+                oneOf [ map IntVariant int, map StringVariant string ]
+          in
+          describe "oneOf"
+            [ hex [ 0x0E ]
+                |> expect intOrString (Just <| IntVariant 14)
+            , hex [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
+                |> expect intOrString (Just <| StringVariant "🌈")
+            ]
         ]
+
+
+type IntOrString
+    = IntVariant Int
+    | StringVariant String
 
 
 {-| Alias / Shortcut to write test cases
