@@ -59,9 +59,10 @@ MessagePack.
 
 import Bitwise exposing (and, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Decode as D
+import Bytes.Decode
+import Bytes.Decode.Branchable as D
+import Bytes.Decode.Floating as D
 import Bytes.Encode as E
-import Bytes.Floating.Decode as D
 import Cbor exposing (CborItem(..))
 import Cbor.Encode as CE
 import Cbor.Tag exposing (Tag(..))
@@ -231,14 +232,14 @@ chunks majorType chunk mappend =
                             es
                                 |> List.reverse
                                 |> mappend
-                                |> D.Done
+                                |> Bytes.Decode.Done
                                 |> D.succeed
 
                         else
                             payloadForMajor majorType a
                                 |> D.andThen unsigned
                                 |> D.andThen chunk
-                                |> D.map (\e -> D.Loop (e :: es))
+                                |> D.map (\e -> Bytes.Decode.Loop (e :: es))
                     )
     in
     consumeNextMajor majorType <|
@@ -332,22 +333,22 @@ foldable majorType consumeNext processNext =
                         if a == tBREAK then
                             es
                                 |> List.reverse
-                                |> D.Done
+                                |> Bytes.Decode.Done
                                 |> D.succeed
 
                         else
                             processNext a
-                                |> D.map (\e -> D.Loop (e :: es))
+                                |> D.map (\e -> Bytes.Decode.Loop (e :: es))
                     )
 
         def ( n, es ) =
             if n <= 0 then
-                es |> List.reverse |> D.Done |> D.succeed
+                es |> List.reverse |> Bytes.Decode.Done |> D.succeed
 
             else
                 consumeNext
                     |> D.andThen processNext
-                    |> D.map (\e -> D.Loop ( n - 1, e :: es ))
+                    |> D.map (\e -> Bytes.Decode.Loop ( n - 1, e :: es ))
     in
     consumeNextMajor majorType <|
         \a ->
