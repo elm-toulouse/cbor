@@ -1,6 +1,6 @@
 # Changelog
 
-## v3.2.0 (unreleased)
+## v3.2.0 (2023-12-03)
 
 ### Added
 
@@ -9,6 +9,12 @@
 - New data-type `Sign` to represent signed big integer values.
 
 #### Cbor.decode
+
+- New primitive `oneOf` to alternatively try decoders:
+
+  ```elm
+  oneOf : List (Decoder a) -> Decoder a
+  ```
 
 - New primitive `bigInt`:
 
