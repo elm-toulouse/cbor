@@ -2,7 +2,7 @@ module Cbor.Decode exposing
     ( Decoder, decode, maybe
     , bool, int, float, string, bytes
     , list, length, dict, size
-    , Step, record, fields, field, optionalField, tuple, elems, elem
+    , Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
     , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
@@ -33,7 +33,7 @@ MessagePack.
 
 ## Records & Tuples
 
-@docs Step, record, fields, field, optionalField, tuple, elems, elem
+@docs Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
 
 
 ## Mapping
@@ -543,10 +543,10 @@ optionalField want v =
 
                             else
                                 let
-                                    (Decoder decodeKey processKey) =
+                                    (Decoder consumeKey processKey) =
                                         st.decodeKey
                                 in
-                                Decoder decodeKey <|
+                                Decoder consumeKey <|
                                     \t ->
                                         if t == tBREAK then
                                             let
@@ -608,15 +608,20 @@ tuple steps decodeTuple =
                     |> andThen
                         (\(Step st) ->
                             -- When decoding indefinite-length *tuples*, we
-                            -- never decode the final break byte. So we must
+                            -- don't always decode the final break byte. So we must
                             -- ensure to do it here.
-                            Decoder D.unsignedInt8 <|
-                                \tLast ->
-                                    if tLast == tBREAK then
-                                        D.succeed st.steps
+                            case st.size of
+                                Indefinite True ->
+                                    succeed st.steps
 
-                                    else
-                                        D.fail
+                                _ ->
+                                    Decoder D.unsignedInt8 <|
+                                        \tLast ->
+                                            if tLast == tBREAK then
+                                                D.succeed st.steps
+
+                                            else
+                                                D.fail
                         )
                     |> runDecoder
 
@@ -653,6 +658,73 @@ elem : Decoder field -> Decoder (Step Never (field -> steps)) -> Decoder (Step N
 elem v =
     andThen <|
         \(Step st) -> map (step (Step st) Nothing) v
+
+
+{-| Decode an optional element of a record or tuple and step through the
+decoder. Note that optional elements only make sense at the end of a structure.
+
+In particular, optional elements must be contiguous and can only be optional
+(resp. missing) if all their successors are also optional (resp. missing).
+
+For example, consider:
+
+    type alias Foo =
+        Foo
+            { a : Int
+            , b : Maybe Int
+            , c : Maybe Int
+            }
+
+    decodeFoo =
+        tuple Foo <|
+            elems
+                >> elem int
+                >> optionalElem int
+                >> optionalElem int
+
+  - It is possible for `c` to be missing.
+  - It is possible for `b` and `c` to be missing.
+  - But it isn't possible for only `b` to be missing as this is undistinguishable from `c` missing.
+
+If you need such behavior, use [`elem`](#elem) with [`maybe`](#maybe).
+
+-}
+optionalElem : Decoder field -> Decoder (Step Never (Maybe field -> steps)) -> Decoder (Step Never steps)
+optionalElem v =
+    andThen <|
+        \(Step st) ->
+            let
+                ignoreElem =
+                    step (Step st) st.k Nothing
+            in
+            case st.size of
+                Indefinite done ->
+                    if done then
+                        succeed ignoreElem
+
+                    else
+                        let
+                            (Decoder consumeField processField) =
+                                v
+                        in
+                        Decoder consumeField <|
+                            \t ->
+                                if t == tBREAK then
+                                    let
+                                        (Step sNext) =
+                                            ignoreElem
+                                    in
+                                    D.succeed <| Step { sNext | size = Indefinite True }
+
+                                else
+                                    D.map (step (Step st) Nothing << Just) (processField t)
+
+                Definite sz ->
+                    if sz <= 0 then
+                        succeed ignoreElem
+
+                    else
+                        map (step (Step st) Nothing << Just) v
 
 
 {-| Internal, generic stepping function

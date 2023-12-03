@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.1.0 (2023-12-03)
+
+### Added
+
+#### Cbor.Decode
+
+- New primitive `optionalElem` for decoding tuples of variable length.
+
+  ```elm
+  optionalElem :
+    Decoder field
+    -> Decoder (Step Never (Maybe field -> steps))
+    -> Decoder (Step Never steps)
+  ```
+
+### Changed
+
+#### Cbor.Decode
+
+- `fail` no longer fails eagerly, but at a later stage when needed. This fixes the use of partial decoder in conjunction with `maybe`.
+
+### Removed
+
+N/A
+
 ## v3.0.0 (2023-10-27)
 
 ### Changed

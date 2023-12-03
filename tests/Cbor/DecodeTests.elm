@@ -425,8 +425,20 @@ suite =
         , describe "Tuples"
             [ hex [ 0x84, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00 ]
                 |> expect decodeFooTuple (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex [ 0x84, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x01 ]
+                |> expect decodeFooTupleCompact (Just <| Foo 14 True (Just 1337) (Just 1))
+            , hex [ 0x83, 0x0E, 0xF5, 0x19, 0x05, 0x39 ]
+                |> expect decodeFooTupleCompact (Just <| Foo 14 True (Just 1337) Nothing)
+            , hex [ 0x82, 0x0E, 0xF5 ]
+                |> expect decodeFooTupleCompact (Just <| Foo 14 True Nothing Nothing)
             , hex [ 0x9F, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x00, 0xFF ]
                 |> expect decodeFooTuple (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex [ 0x9F, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0x01, 0xFF ]
+                |> expect decodeFooTupleCompact (Just <| Foo 14 True (Just 1337) (Just 1))
+            , hex [ 0x9F, 0x0E, 0xF5, 0x19, 0x05, 0x39, 0xFF ]
+                |> expect decodeFooTupleCompact (Just <| Foo 14 True (Just 1337) Nothing)
+            , hex [ 0x9F, 0x0E, 0xF5, 0xFF ]
+                |> expect decodeFooTupleCompact (Just <| Foo 14 True Nothing Nothing)
             , hex
                 (List.concat
                     [ [ 0x98, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
@@ -514,6 +526,16 @@ decodeFooVerbose =
             >> field "a1" bool
             >> optionalField "a2" int
             >> optionalField "a3" int
+
+
+decodeFooTupleCompact : Decoder Foo
+decodeFooTupleCompact =
+    tuple Foo <|
+        elems
+            >> elem int
+            >> elem bool
+            >> optionalElem int
+            >> optionalElem int
 
 
 decodeFooTuple : Decoder Foo
