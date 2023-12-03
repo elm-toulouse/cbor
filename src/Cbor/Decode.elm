@@ -67,8 +67,8 @@ import Bitwise exposing (and, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
 import Bytes.Decode
 import Bytes.Decode.Branchable as D
-import Bytes.Decode.Floating as D
 import Bytes.Encode as E
+import Bytes.Floating.Decode as D
 import Cbor exposing (CborItem(..))
 import Cbor.Encode as CE
 import Cbor.Tag exposing (Tag(..))
@@ -190,7 +190,7 @@ float =
     consumeNextMajor 7 <|
         \a ->
             if a == 25 then
-                D.float16 BE
+                D.fromDecoder (D.float16 BE) 2
 
             else if a == 26 then
                 D.float32 BE
@@ -1314,7 +1314,7 @@ raw =
 -}
 tBEGIN : Int
 tBEGIN =
-    31
+    0x1F
 
 
 {-| Marks the end of an indefinite structure
