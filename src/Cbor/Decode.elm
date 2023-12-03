@@ -4,6 +4,7 @@ module Cbor.Decode exposing
     , list, length, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
+    , oneOf
     , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
     , any, raw
@@ -41,6 +42,11 @@ MessagePack.
 @docs succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
 
 
+## Branching
+
+@docs oneOf
+
+
 ## Streaming
 
 @docs beginString, beginBytes, beginList, beginDict, break
@@ -59,7 +65,8 @@ MessagePack.
 
 import Bitwise exposing (and, shiftLeftBy, shiftRightBy)
 import Bytes exposing (Bytes, Endianness(..))
-import Bytes.Decode as D
+import Bytes.Decode
+import Bytes.Decode.Branchable as D
 import Bytes.Encode as E
 import Bytes.Floating.Decode as D
 import Cbor exposing (CborItem(..))
@@ -183,7 +190,7 @@ float =
     consumeNextMajor 7 <|
         \a ->
             if a == 25 then
-                D.float16 BE
+                D.fromDecoder (D.float16 BE) 2
 
             else if a == 26 then
                 D.float32 BE
@@ -231,14 +238,14 @@ chunks majorType chunk mappend =
                             es
                                 |> List.reverse
                                 |> mappend
-                                |> D.Done
+                                |> Bytes.Decode.Done
                                 |> D.succeed
 
                         else
                             payloadForMajor majorType a
                                 |> D.andThen unsigned
                                 |> D.andThen chunk
-                                |> D.map (\e -> D.Loop (e :: es))
+                                |> D.map (\e -> Bytes.Decode.Loop (e :: es))
                     )
     in
     consumeNextMajor majorType <|
@@ -332,22 +339,22 @@ foldable majorType consumeNext processNext =
                         if a == tBREAK then
                             es
                                 |> List.reverse
-                                |> D.Done
+                                |> Bytes.Decode.Done
                                 |> D.succeed
 
                         else
                             processNext a
-                                |> D.map (\e -> D.Loop (e :: es))
+                                |> D.map (\e -> Bytes.Decode.Loop (e :: es))
                     )
 
         def ( n, es ) =
             if n <= 0 then
-                es |> List.reverse |> D.Done |> D.succeed
+                es |> List.reverse |> Bytes.Decode.Done |> D.succeed
 
             else
                 consumeNext
                     |> D.andThen processNext
-                    |> D.map (\e -> D.Loop ( n - 1, e :: es ))
+                    |> D.map (\e -> Bytes.Decode.Loop ( n - 1, e :: es ))
     in
     consumeNextMajor majorType <|
         \a ->
@@ -1097,6 +1104,42 @@ traverse fn =
 
 
 {-------------------------------------------------------------------------------
+                                 Branching
+-------------------------------------------------------------------------------}
+
+
+{-| Decode something that can have one of many shapes without prior information
+on the correct shape.
+
+    type IntOrString
+        = IntVariant Int
+        | StringVariant String
+
+    intOrString : Decoder IntOrString
+    intOrString =
+        D.oneOf [ D.map IntVariant D.int, D.map StringVariant D.string ]
+
+    Bytes<0x64, 0xF0, 0x9F, 0x8C, 0x88>
+        |> D.decode intOrString
+    --> (Just <| StringVariant "🌈")
+
+-}
+oneOf : List (Decoder a) -> Decoder a
+oneOf alternatives =
+    let
+        absurd =
+            shiftLeftBy 5 28
+    in
+    Decoder (D.succeed absurd) <|
+        (alternatives
+            |> List.map runDecoder
+            |> D.oneOf
+            |> always
+        )
+
+
+
+{-------------------------------------------------------------------------------
                                  Streaming
 -------------------------------------------------------------------------------}
 
@@ -1271,7 +1314,7 @@ raw =
 -}
 tBEGIN : Int
 tBEGIN =
-    31
+    0x1F
 
 
 {-| Marks the end of an indefinite structure
