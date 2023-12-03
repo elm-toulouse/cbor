@@ -220,6 +220,12 @@ suite =
         , describe "Extras"
             [ hex [ 0xF6 ]
                 |> expect (maybe bool) (Just Nothing)
+            , hex [ 0xF7 ]
+                |> expect (maybe fail) (Just Nothing)
+            , hex [ 0x18, 0x50 ]
+                |> expect (maybe (map (always 14) fail)) Nothing
+            , hex [ 0x18, 0x51 ]
+                |> expect (maybe (andThen (always <| succeed 14) fail)) Nothing
             , hex [ 0xF4 ]
                 |> expect (maybe bool) (Just (Just False))
             , hex []

@@ -827,7 +827,18 @@ This is particularly handy when used in combination with [`andThen`](#andThen)
 -}
 fail : Decoder a
 fail =
-    Decoder D.fail (always D.fail)
+    -- NOTE: We must decode at least one byte here to avoid failing too early
+    -- with the 'fail' decoder. This is needed for example for the 'maybe'
+    -- combinator which will only execute 'processNext' when it encounters a
+    -- non-null CBOR byte. So we must not fail when consuming the next byte, but
+    -- only later when processing it.
+    --
+    -- This is okay because:
+    --
+    -- (a) If there's no more byte to consume, we still fail as expected.
+    -- (b) This cannot lead to weird encoding following D.fail because nothing
+    -- can follow D.fail
+    Decoder D.unsignedInt8 (always D.fail)
 
 
 {-| Decode something and then use that information to decode something else.
