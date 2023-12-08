@@ -489,7 +489,28 @@ suite =
             , hex [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
                 |> expect intOrString (Just <| StringVariant "🌈")
             ]
+        , describe "keep, ignore"
+            [ hex [ 0x83, 0x0E, 0x18, 0x2A, 0x19, 0x05, 0x39, 0x00, 0x00 ]
+                |> expect
+                    (succeed (\a b c -> [ a, b, c ])
+                        |> ignore length
+                        |> keep int
+                        |> keep int
+                        |> keep int
+                    )
+                    (Just [ 14, 42, 1337 ])
+            ]
         ]
+
+
+keep : Decoder a -> Decoder (a -> b) -> Decoder b
+keep val fun =
+    map2 (<|) fun val
+
+
+ignore : Decoder ignore -> Decoder keep -> Decoder keep
+ignore skipper keeper =
+    map2 always keeper skipper
 
 
 type IntOrString
