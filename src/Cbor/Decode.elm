@@ -1,7 +1,7 @@
 module Cbor.Decode exposing
     ( Decoder, decode, maybe
     , bool, int, bigint, float, string, bytes
-    , list, length, dict, size
+    , list, length, dict, associativeList, size
     , Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
     , oneOf, keep, ignore
@@ -29,7 +29,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, length, dict, size
+@docs list, length, dict, associativeList, size
 
 
 ## Records & Tuples
