@@ -503,16 +503,6 @@ suite =
         ]
 
 
-keep : Decoder a -> Decoder (a -> b) -> Decoder b
-keep val fun =
-    map2 (<|) fun val
-
-
-ignore : Decoder ignore -> Decoder keep -> Decoder keep
-ignore skipper keeper =
-    map2 always keeper skipper
-
-
 type IntOrString
     = IntVariant Int
     | StringVariant String

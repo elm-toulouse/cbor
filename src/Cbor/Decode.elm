@@ -4,7 +4,7 @@ module Cbor.Decode exposing
     , list, length, dict, size
     , Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
-    , oneOf
+    , oneOf, keep, ignore
     , beginString, beginBytes, beginList, beginDict, break
     , tag, tagged
     , any, raw
@@ -44,7 +44,7 @@ MessagePack.
 
 ## Branching
 
-@docs oneOf
+@docs oneOf, keep, ignore
 
 
 ## Streaming
@@ -1284,6 +1284,89 @@ oneOf alternatives =
             |> D.oneOf
             |> always
         )
+
+
+{-| Decode the next value from a structure, and continue decoding.
+
+This is particularly useful when manually decoding an array-like or map-like
+structure that materialize multi-variant constructors. For example, imagine the
+following:
+
+    type Hostname
+        = Single Ipv4 TcpPort
+        | Multi AaaRecord TcpPort
+        | Dns SrvRecord
+
+Which could be encoded as such:
+
+    toCBOR : Hostname -> E.Encoder
+    toCBOR host =
+        case host of
+            Single ip tcpPort ->
+                E.sequence
+                    [ E.length 3
+                    , E.int 0
+                    , Ipv4.toCbor ip
+                    , TcpPort.toCbor tcpPort
+                    ]
+
+            Multi record tcpPort ->
+                E.sequence
+                    [ E.length 3
+                    , E.int 1
+                    , AaaRecord.toCbor record
+                    , TcpPort.toCbor tcpPort
+                    ]
+
+            Dns record ->
+                E.sequence
+                    [ E.length 2
+                    , E.int 2
+                    , SrvRecord.toCbor record
+                    ]
+
+Here, the usual [`tuple`](#tuple) helper would be hopeless since we can't commit
+to a single constructor a priori. Using [`oneOf`](#oneOf) is also unsatisfactory
+as we could branch into the right decoder by just peaking at the first byte.
+Using `keep` and [`ignore`](#ignore) we can write an efficient decoder as such:
+
+    fromCbor : D.Decoder Hostname
+    fromCbor =
+        D.length
+            |> D.andThen (\len -> D.map (\tag -> ( len, tag )) D.int)
+            |> D.andThen
+                (\( _, tag ) ->
+                    case tag of
+                        0 ->
+                            succeed Single
+                                |> keep Ipv4.fromCbor
+                                |> keep TcpPort.fromCbor
+
+                        1 ->
+                            succeed Multi
+                                |> keep AaaRecord.fromCbor
+                                |> keep TcpPort.fromCbor
+
+                        2 ->
+                            succeed Dns
+                                |> SrvRecord.fromCbor
+
+                        _ ->
+                            D.fail
+                )
+
+-}
+keep : Decoder a -> Decoder (a -> b) -> Decoder b
+keep val fun =
+    map2 (<|) fun val
+
+
+{-| Ignore a field when manually decoding a structure. See [`keep`](#keep) for
+details
+-}
+ignore : Decoder ignore -> Decoder keep -> Decoder keep
+ignore skipper keeper =
+    map2 always keeper skipper
 
 
 

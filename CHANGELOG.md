@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.3.0 (2023-12-10)
+
+### Added
+
+#### Cbor.Decode
+
+- New primitives `keep` and `ignore` to manually decode a data-structure.
+
+  ```elm
+   keep :
+       Cbor.Decode.Decoder a
+       -> Cbor.Decode.Decoder (a -> b)
+       -> Cbor.Decode.Decoder b
+
+  ignore :
+       Cbor.Decode.Decoder ignore
+       -> Cbor.Decode.Decoder keep
+       -> Cbor.Decode.Decoder keep
+  ```
+
 ## v3.2.0 (2023-12-03)
 
 ### Added
@@ -8,7 +28,7 @@
 
 - New data-type `Sign` to represent signed big integer values.
 
-#### Cbor.decode
+#### Cbor.Decode
 
 - New primitive `oneOf` to alternatively try decoders:
 
