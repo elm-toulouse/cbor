@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.4.0 (2023-12-11)
+
+### Added
+
+#### Cbor.Decode
+
+- New primitive `associativeList`
+
+  ```elm
+  associativeList : Decoder k -> Decoder v -> Decoder (List ( k, v ))
+  ```
+
 ## v3.3.0 (2023-12-10)
 
 ### Added
@@ -9,15 +21,9 @@
 - New primitives `keep` and `ignore` to manually decode a data-structure.
 
   ```elm
-   keep :
-       Cbor.Decode.Decoder a
-       -> Cbor.Decode.Decoder (a -> b)
-       -> Cbor.Decode.Decoder b
+   keep : Decoder a -> Decoder (a -> b) -> Decoder b
 
-  ignore :
-       Cbor.Decode.Decoder ignore
-       -> Cbor.Decode.Decoder keep
-       -> Cbor.Decode.Decoder keep
+  ignore : Decoder ignore -> Decoder keep -> Decoder keep
   ```
 
 ## v3.2.0 (2023-12-03)
