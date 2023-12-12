@@ -1,7 +1,7 @@
 module Cbor.Decode exposing
     ( Decoder, decode, maybe
     , bool, int, bigint, float, string, bytes
-    , list, length, dict, size, associativeList
+    , list, length, dict, size, associativeList, associativeFold
     , Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
     , oneOf, keep, ignore
@@ -29,7 +29,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, length, dict, size, associativeList
+@docs list, length, dict, size, associativeList, associativeFold
 
 
 ## Records & Tuples
@@ -524,6 +524,50 @@ definiteLength majorType =
 
             else
                 unsigned a
+
+
+{-| Decode a CBOR map by folding over its entries and updating a state variable.
+-}
+associativeFold :
+    Decoder k
+    -> (k -> Decoder (state -> state))
+    -> state
+    -> Decoder state
+associativeFold (Decoder consumeNextKey processNextKey) stepDecoder initialState =
+    let
+        indef : state -> D.Decoder (Bytes.Decode.Step state state)
+        indef state =
+            consumeNextKey
+                |> D.andThen
+                    (\a ->
+                        if a == tBREAK then
+                            D.succeed (Bytes.Decode.Done state)
+
+                        else
+                            processNextKey a
+                                |> D.andThen (\k -> runDecoder <| stepDecoder k)
+                                |> D.map (\f -> Bytes.Decode.Loop (f state))
+                    )
+
+        def : ( Int, state ) -> D.Decoder (Bytes.Decode.Step ( Int, state ) state)
+        def ( n, state ) =
+            if n <= 0 then
+                D.succeed (Bytes.Decode.Done state)
+
+            else
+                consumeNextKey
+                    |> D.andThen processNextKey
+                    |> D.andThen (\k -> runDecoder <| stepDecoder k)
+                    |> D.map (\f -> Bytes.Decode.Loop ( n - 1, f state ))
+    in
+    consumeNextMajor 5 <|
+        \a ->
+            if a == tBEGIN then
+                D.loop initialState indef
+
+            else
+                unsigned a
+                    |> D.andThen (\n -> D.loop ( n, initialState ) def)
 
 
 
