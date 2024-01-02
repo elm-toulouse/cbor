@@ -603,17 +603,73 @@ definiteLength majorType =
 [`record`](#record) or [`tuple`](#tuple) for more detail.
 -}
 type Step k result
-    = Step
-        { size : Size
-        , steps : result
-        , decodeKey : Decoder k
-        , k : Maybe k
-        }
+    = TupleStep (TupleSt k result)
+    | RecordStep (RecordSt k result)
 
 
 type Size
     = Definite Int
     | Indefinite Bool
+
+
+type alias TupleSt k result =
+    { size : Size
+    , steps : result
+    , decodeKey : Decoder k
+    , k : Maybe k
+    }
+
+
+type alias RecordSt k result =
+    { steps : result
+    , rest : List ( k, Bytes )
+    }
+
+
+{-| Ideally, we would use two types for 'Step', but:
+
+(a) It causes a breaking change in the current API
+(b) It makes the API harder to decipher as there are now two opaque internal 'State' for both tuples and record.
+
+So we hide a bit of that complexity to the users and keep it internal. Since Elm
+doesn't support GADTs, we can't discriminate at the type-level and must resort
+to a little helper function to pattern-match.
+
+-}
+withTupleStep :
+    (TupleSt k (field -> steps) -> Decoder (TupleSt k steps))
+    -> Decoder (Step k (field -> steps))
+    -> Decoder (Step k steps)
+withTupleStep with st =
+    st
+        |> andThen
+            (\inner ->
+                case inner of
+                    TupleStep t ->
+                        map TupleStep (with t)
+
+                    RecordStep _ ->
+                        fail
+            )
+
+
+{-| See [withTupleStep](#withTupleStep).
+-}
+withRecordStep :
+    (RecordSt k (field -> steps) -> Decoder (RecordSt k steps))
+    -> Decoder (Step k (field -> steps))
+    -> Decoder (Step k steps)
+withRecordStep with st =
+    st
+        |> andThen
+            (\inner ->
+                case inner of
+                    TupleStep _ ->
+                        fail
+
+                    RecordStep r ->
+                        map RecordStep (with r)
+            )
 
 
 {-| Decode a (definite) CBOR map into a record. Keys in the map can be arbitrary
@@ -645,38 +701,18 @@ CBOR but are expected to be homogeneous across the record.
 
 -}
 record : Decoder k -> steps -> (Step k steps -> Decoder (Step k record)) -> Decoder record
-record decodeKey steps decodeRecord =
-    consumeNextMajor 5
-        (\tFirst ->
-            -- Here follows an indefinite structure.
-            if tFirst == tBEGIN then
-                Step
-                    { k = Nothing
-                    , steps = steps
-                    , size = Indefinite False
-                    , decodeKey = decodeKey
-                    }
-                    |> decodeRecord
-                    |> runDecoder
+record decodeKey steps decodeNext =
+    associativeList decodeKey raw
+        |> andThen (\rest -> RecordStep { steps = steps, rest = rest } |> decodeNext)
+        |> andThen
+            (\result ->
+                case result of
+                    RecordStep st ->
+                        succeed st.steps
 
-            else
-                -- Here follows a definite structure; before we continue
-                -- decoding it, we must first decode the rest of the size which
-                -- may be encoded over multiple bytes.
-                unsigned tFirst
-                    |> D.andThen
-                        (\sz ->
-                            Step
-                                { k = Nothing
-                                , steps = steps
-                                , size = Definite sz
-                                , decodeKey = decodeKey
-                                }
-                                |> decodeRecord
-                                |> runDecoder
-                        )
-        )
-        |> map (\(Step st) -> st.steps)
+                    TupleStep _ ->
+                        fail
+            )
 
 
 {-| A helper that makes writing record decoders nicer. It is equivalent to
@@ -694,26 +730,16 @@ See [`record`](#record) for detail about usage.
 
 -}
 field : k -> Decoder field -> Decoder (Step k (field -> steps)) -> Decoder (Step k steps)
-field want v =
-    andThen <|
-        \(Step st) ->
-            let
-                decodeField got =
-                    if want /= got then
-                        fail
-
-                    else
-                        map (step (Step st) Nothing) v
-
-                decodeKey =
-                    case st.k of
-                        Nothing ->
-                            st.decodeKey
-
-                        Just got ->
-                            succeed got
-            in
-            decodeKey |> andThen decodeField
+field want decodeField =
+    withRecordStep <|
+        \st ->
+            extract want st.rest
+                |> Maybe.andThen
+                    (\( bs, rest ) ->
+                        decode decodeField bs
+                            |> Maybe.map (\v -> succeed { rest = rest, steps = st.steps v })
+                    )
+                |> Maybe.withDefault fail
 
 
 {-| Decode an optional field of record and step through the decoder. This
@@ -724,80 +750,17 @@ See [`record`](#record) for detail about usage.
 
 -}
 optionalField : k -> Decoder field -> Decoder (Step k (Maybe field -> steps)) -> Decoder (Step k steps)
-optionalField want v =
-    -- Optional fields are ... complicated. There are three issues:
-    --
-    -- 1. We need to the decode the next key, but it might not be
-    --    the key we are waiting for. In such case, we mustn't fail
-    --    but simply continue to the next field and pass in the key
-    --    that we have already decoded.
-    --
-    -- 2. In the case of indefinite records, the next element might
-    --    actually not be a field, but might be a break marker. If
-    --    that's the case then any remaining optional field is just
-    --    'Nothing' and we must not decode any new byte. We use the
-    --    boolean in `Indefinite` to remember that.
-    --
-    -- 3. In the case of definite records, we mustn't attempt to decode
-    --    the next byte because there might not be any! Which is why we
-    --    keep track of the number of fields that still need to be
-    --    decoded. When this is 0, we know we have decoded all fields
-    --    and any new optional field is `Nothing`.
-    andThen <|
-        \(Step st) ->
-            let
-                decodeField got =
-                    if want /= got then
-                        step (Step st) (Just got) Nothing |> succeed
+optionalField want decodeField =
+    withRecordStep <|
+        \st ->
+            case extract want st.rest of
+                Just ( bs, rest ) ->
+                    decode decodeField bs
+                        |> Maybe.map (\v -> succeed { rest = rest, steps = st.steps (Just v) })
+                        |> Maybe.withDefault fail
 
-                    else
-                        v |> map (Just >> step (Step st) Nothing)
-
-                ignoreField =
-                    step (Step st) st.k Nothing
-            in
-            case st.size of
-                Indefinite done ->
-                    case st.k of
-                        Nothing ->
-                            if done then
-                                succeed ignoreField
-
-                            else
-                                let
-                                    (Decoder consumeKey processKey) =
-                                        st.decodeKey
-                                in
-                                Decoder consumeKey <|
-                                    \t ->
-                                        if t == tBREAK then
-                                            let
-                                                (Step stNext) =
-                                                    ignoreField
-                                            in
-                                            D.succeed <| Step { stNext | size = Indefinite True }
-
-                                        else
-                                            processKey t |> D.andThen (decodeField >> runDecoder)
-
-                        Just got ->
-                            decodeField got
-
-                Definite sz ->
-                    let
-                        decodeKey =
-                            case st.k of
-                                Nothing ->
-                                    st.decodeKey
-
-                                Just got ->
-                                    succeed got
-                    in
-                    if sz <= 0 then
-                        succeed ignoreField
-
-                    else
-                        decodeKey |> andThen decodeField
+                Nothing ->
+                    succeed { rest = st.rest, steps = st.steps Nothing }
 
 
 {-| Decode a (definite) CBOR array into a record / tuple.
@@ -820,7 +783,7 @@ tuple steps decodeTuple =
     consumeNextMajor 4 <|
         \tFirst ->
             if tFirst == tBEGIN then
-                Step
+                TupleStep
                     { k = Nothing
                     , steps = steps
                     , size = Indefinite False
@@ -828,22 +791,27 @@ tuple steps decodeTuple =
                     }
                     |> decodeTuple
                     |> andThen
-                        (\(Step st) ->
-                            -- When decoding indefinite-length *tuples*, we
-                            -- don't always decode the final break byte. So we must
-                            -- ensure to do it here.
-                            case st.size of
-                                Indefinite True ->
-                                    succeed st.steps
+                        (\result ->
+                            case result of
+                                RecordStep _ ->
+                                    fail
 
-                                _ ->
-                                    Decoder D.unsignedInt8 <|
-                                        \tLast ->
-                                            if tLast == tBREAK then
-                                                D.succeed st.steps
+                                TupleStep st ->
+                                    -- When decoding indefinite-length *tuples*, we
+                                    -- don't always decode the final break byte. So we must
+                                    -- ensure to do it here.
+                                    case st.size of
+                                        Indefinite True ->
+                                            succeed st.steps
 
-                                            else
-                                                D.fail
+                                        _ ->
+                                            Decoder D.unsignedInt8 <|
+                                                \tLast ->
+                                                    if tLast == tBREAK then
+                                                        D.succeed st.steps
+
+                                                    else
+                                                        D.fail
                         )
                     |> runDecoder
 
@@ -851,7 +819,7 @@ tuple steps decodeTuple =
                 unsigned tFirst
                     |> D.andThen
                         (\sz ->
-                            Step
+                            TupleStep
                                 { k = Nothing
                                 , steps = steps
                                 , size = Definite sz
@@ -860,7 +828,15 @@ tuple steps decodeTuple =
                                 |> decodeTuple
                                 |> runDecoder
                         )
-                    |> D.map (\(Step st) -> st.steps)
+                    |> D.andThen
+                        (\result ->
+                            case result of
+                                RecordStep _ ->
+                                    D.fail
+
+                                TupleStep st ->
+                                    D.succeed st.steps
+                        )
 
 
 {-| A helper that makes writing record decoders nicer. It is equivalent to
@@ -878,8 +854,7 @@ See [`tuple`](#tuple) for detail about usage.
 -}
 elem : Decoder field -> Decoder (Step Never (field -> steps)) -> Decoder (Step Never steps)
 elem v =
-    andThen <|
-        \(Step st) -> map (step (Step st) Nothing) v
+    withTupleStep <| \st -> map (step st Nothing) v
 
 
 {-| Decode an optional element of a record or tuple and step through the
@@ -913,11 +888,11 @@ If you need such behavior, use [`elem`](#elem) with [`maybe`](#maybe).
 -}
 optionalElem : Decoder field -> Decoder (Step Never (Maybe field -> steps)) -> Decoder (Step Never steps)
 optionalElem v =
-    andThen <|
-        \(Step st) ->
+    withTupleStep <|
+        \st ->
             let
                 ignoreElem =
-                    step (Step st) st.k Nothing
+                    step st st.k Nothing
             in
             case st.size of
                 Indefinite done ->
@@ -932,58 +907,53 @@ optionalElem v =
                         Decoder consumeField <|
                             \t ->
                                 if t == tBREAK then
-                                    let
-                                        (Step sNext) =
-                                            ignoreElem
-                                    in
-                                    D.succeed <| Step { sNext | size = Indefinite True }
+                                    D.succeed <| { ignoreElem | size = Indefinite True }
 
                                 else
-                                    D.map (step (Step st) Nothing << Just) (processField t)
+                                    D.map (step st Nothing << Just) (processField t)
 
                 Definite sz ->
                     if sz <= 0 then
                         succeed ignoreElem
 
                     else
-                        map (step (Step st) Nothing << Just) v
+                        map (step st Nothing << Just) v
 
 
 {-| Internal, generic stepping function
 -}
-step : Step k (field -> steps) -> Maybe k -> field -> Step k steps
-step (Step st) k next =
-    Step
-        { k = k
-        , steps = st.steps next
-        , decodeKey = st.decodeKey
-        , size =
-            case st.size of
-                Indefinite done ->
-                    Indefinite done
+step : TupleSt k (field -> steps) -> Maybe k -> field -> TupleSt k steps
+step st k next =
+    { k = k
+    , steps = st.steps next
+    , decodeKey = st.decodeKey
+    , size =
+        case st.size of
+            Indefinite done ->
+                Indefinite done
 
-                Definite sz ->
-                    -- NOTE: We need to count the total size to know whether we have any
-                    -- element left to parse. This is because a record may contain
-                    -- optional fields and we don't want to even try to parse the next
-                    -- key if we have parsed all the required fields.
-                    --
-                    -- This is only possible because the size of the record is declared
-                    -- next to the major type; so before we begin parsing any field we
-                    -- know how many we expect.
-                    Definite <|
-                        sz
-                            - (case k of
-                                -- k == Nothing, means that we have consumed the next field.
-                                Nothing ->
-                                    1
+            Definite sz ->
+                -- NOTE: We need to count the total size to know whether we have any
+                -- element left to parse. This is because a record may contain
+                -- optional fields and we don't want to even try to parse the next
+                -- key if we have parsed all the required fields.
+                --
+                -- This is only possible because the size of the record is declared
+                -- next to the major type; so before we begin parsing any field we
+                -- know how many we expect.
+                Definite <|
+                    sz
+                        - (case k of
+                            -- k == Nothing, means that we have consumed the next field.
+                            Nothing ->
+                                1
 
-                                -- k == Just _, means that we haven't consumed the field and
-                                -- we are holding on the key. Waiting for a matching field.
-                                Just _ ->
-                                    0
-                              )
-        }
+                            -- k == Just _, means that we haven't consumed the field and
+                            -- we are holding on the key. Waiting for a matching field.
+                            Just _ ->
+                                0
+                          )
+    }
 
 
 
@@ -1606,6 +1576,26 @@ raw =
 {-------------------------------------------------------------------------------
                                   Internal
 -------------------------------------------------------------------------------}
+
+
+{-| Extract an element from a list
+-}
+extract : k -> List ( k, v ) -> Maybe ( v, List ( k, v ) )
+extract needle =
+    let
+        go rest xs =
+            case xs of
+                [] ->
+                    Nothing
+
+                ( k, v ) :: tail ->
+                    if needle == k then
+                        Just ( v, rest ++ tail )
+
+                    else
+                        go (( k, v ) :: rest) tail
+    in
+    go []
 
 
 {-| Marks the beginning of an indefinite structure

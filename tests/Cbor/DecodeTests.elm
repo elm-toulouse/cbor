@@ -442,7 +442,7 @@ suite =
                 |> expect decodeManyRecord (Just <| Many 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
             , hex [ 0xBF, 0x00, 0x00, 0x01, 0xF4 ]
                 |> expect decodeFooCompact Nothing
-            , hex [ 0xA3, 0x00, 0x0E, 0x03, 0x02, 0x01, 0xF5 ]
+            , hex [ 0xA3, 0x00, 0x0E, 0x03, 0x02, 0x01 ]
                 |> expect decodeFooCompact Nothing
             ]
         , describe "Tuples"
