@@ -416,6 +416,8 @@ suite =
                 |> expect decodeFooCompact (Just <| Foo 0 False Nothing Nothing)
             , hex [ 0xA4, 0x62, 0x61, 0x30, 0x0E, 0x62, 0x61, 0x31, 0xF5, 0x62, 0x61, 0x32, 0x19, 0x05, 0x39, 0x62, 0x61, 0x33, 0x00 ]
                 |> expect decodeFooVerbose (Just <| Foo 14 True (Just 1337) (Just 0))
+            , hex [ 0xA4, 0x62, 0x61, 0x30, 0x0E, 0x62, 0x61, 0x31, 0xF5, 0x62, 0x61, 0x32, 0x19, 0x05, 0x39, 0x62, 0x61, 0x33, 0x01 ]
+                |> expect decodeFooVerboseFold (Just <| Foo 14 True (Just 1337) (Just 1))
             , hex
                 (List.concat
                     [ [ 0xB8, 0x19, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05 ]
@@ -590,6 +592,29 @@ decodeFooVerbose =
             >> field "a1" bool
             >> optionalField "a2" int
             >> optionalField "a3" int
+
+
+decodeFooVerboseFold : Decoder Foo
+decodeFooVerboseFold =
+    let
+        stepDecoder k =
+            case k of
+                "a0" ->
+                    int |> map (\a0 state -> { state | a0 = a0 })
+
+                "a1" ->
+                    bool |> map (\a1 state -> { state | a1 = a1 })
+
+                "a2" ->
+                    int |> map (\a2 state -> { state | a2 = Just a2 })
+
+                "a3" ->
+                    int |> map (\a3 state -> { state | a3 = Just a3 })
+
+                _ ->
+                    fail
+    in
+    associativeFold string stepDecoder { a0 = 0, a1 = False, a2 = Nothing, a3 = Nothing }
 
 
 decodeFooTupleCompact : Decoder Foo
