@@ -1,7 +1,7 @@
 module Cbor.Decode exposing
     ( Decoder, decode, maybe
     , bool, int, bigint, float, string, bytes
-    , list, length, dict, size, associativeList, associativeFold
+    , list, length, dict, size, associativeList, fold
     , Step, record, fields, field, optionalField, tuple, elems, elem, optionalElem
     , succeed, fail, andThen, ignoreThen, thenIgnore, map, map2, map3, map4, map5, traverse
     , oneOf, keep, ignore
@@ -29,7 +29,7 @@ MessagePack.
 
 ## Data Structures
 
-@docs list, length, dict, size, associativeList, associativeFold
+@docs list, length, dict, size, associativeList, fold
 
 
 ## Records & Tuples
@@ -470,6 +470,73 @@ associativeList (Decoder consumeNextKey processNextKey) value =
         )
 
 
+{-| Decode a CBOR map by folding over its entries and updating a state variable.
+Useful to decode record-like structures that have empty values.
+
+    type alias Foo =
+        { foo : Maybe Int
+        , bar : Maybe Bool
+        }
+
+    decodeFoo : D.Decoder Foo
+    decodeFoo =
+        D.fold D.int
+            (\k ->
+                case k of
+                    0 ->
+                        D.int |> D.andThen (\v st -> { st | foo = Just v })
+
+                    1 ->
+                        D.bool |> D.andThen (\v st -> { st | bar = Just v })
+
+                    _ ->
+                        D.fail
+            )
+            { foo = Nothing, bar = Nothing }
+
+-}
+fold :
+    Decoder k
+    -> (k -> Decoder (state -> state))
+    -> state
+    -> Decoder state
+fold (Decoder consumeNextKey processNextKey) stepDecoder initialState =
+    let
+        indef : state -> D.Decoder (Bytes.Decode.Step state state)
+        indef state =
+            consumeNextKey
+                |> D.andThen
+                    (\a ->
+                        if a == tBREAK then
+                            D.succeed (Bytes.Decode.Done state)
+
+                        else
+                            processNextKey a
+                                |> D.andThen (\k -> runDecoder <| stepDecoder k)
+                                |> D.map (\f -> Bytes.Decode.Loop (f state))
+                    )
+
+        def : ( Int, state ) -> D.Decoder (Bytes.Decode.Step ( Int, state ) state)
+        def ( n, state ) =
+            if n <= 0 then
+                D.succeed (Bytes.Decode.Done state)
+
+            else
+                consumeNextKey
+                    |> D.andThen processNextKey
+                    |> D.andThen (\k -> runDecoder <| stepDecoder k)
+                    |> D.map (\f -> Bytes.Decode.Loop ( n - 1, f state ))
+    in
+    consumeNextMajor 5 <|
+        \a ->
+            if a == tBEGIN then
+                D.loop initialState indef
+
+            else
+                unsigned a
+                    |> D.andThen (\n -> D.loop ( n, initialState ) def)
+
+
 {-| A re-usable generic encoder for list-like data structures. This decoder
 ensures to seamlessly decode definite and indefinite structures.
 -}
@@ -524,50 +591,6 @@ definiteLength majorType =
 
             else
                 unsigned a
-
-
-{-| Decode a CBOR map by folding over its entries and updating a state variable.
--}
-associativeFold :
-    Decoder k
-    -> (k -> Decoder (state -> state))
-    -> state
-    -> Decoder state
-associativeFold (Decoder consumeNextKey processNextKey) stepDecoder initialState =
-    let
-        indef : state -> D.Decoder (Bytes.Decode.Step state state)
-        indef state =
-            consumeNextKey
-                |> D.andThen
-                    (\a ->
-                        if a == tBREAK then
-                            D.succeed (Bytes.Decode.Done state)
-
-                        else
-                            processNextKey a
-                                |> D.andThen (\k -> runDecoder <| stepDecoder k)
-                                |> D.map (\f -> Bytes.Decode.Loop (f state))
-                    )
-
-        def : ( Int, state ) -> D.Decoder (Bytes.Decode.Step ( Int, state ) state)
-        def ( n, state ) =
-            if n <= 0 then
-                D.succeed (Bytes.Decode.Done state)
-
-            else
-                consumeNextKey
-                    |> D.andThen processNextKey
-                    |> D.andThen (\k -> runDecoder <| stepDecoder k)
-                    |> D.map (\f -> Bytes.Decode.Loop ( n - 1, f state ))
-    in
-    consumeNextMajor 5 <|
-        \a ->
-            if a == tBEGIN then
-                D.loop initialState indef
-
-            else
-                unsigned a
-                    |> D.andThen (\n -> D.loop ( n, initialState ) def)
 
 
 

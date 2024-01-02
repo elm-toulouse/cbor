@@ -418,6 +418,8 @@ suite =
                 |> expect decodeFooVerbose (Just <| Foo 14 True (Just 1337) (Just 0))
             , hex [ 0xA4, 0x62, 0x61, 0x30, 0x0E, 0x62, 0x61, 0x31, 0xF5, 0x62, 0x61, 0x32, 0x19, 0x05, 0x39, 0x62, 0x61, 0x33, 0x01 ]
                 |> expect decodeFooVerboseFold (Just <| Foo 14 True (Just 1337) (Just 1))
+            , hex [ 0xA4, 0x62, 0x61, 0x32, 0x19, 0x05, 0x39, 0x62, 0x61, 0x31, 0xF5, 0x62, 0x61, 0x33, 0x01, 0x62, 0x61, 0x30, 0x0E ]
+                |> expect decodeFooVerboseFold (Just <| Foo 14 True (Just 1337) (Just 1))
             , hex
                 (List.concat
                     [ [ 0xB8, 0x19, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05 ]
@@ -614,7 +616,7 @@ decodeFooVerboseFold =
                 _ ->
                     fail
     in
-    associativeFold string stepDecoder { a0 = 0, a1 = False, a2 = Nothing, a3 = Nothing }
+    fold string stepDecoder { a0 = 0, a1 = False, a2 = Nothing, a3 = Nothing }
 
 
 decodeFooTupleCompact : Decoder Foo
