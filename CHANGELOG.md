@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.5.0 (2024-02-18)
+
+### Added
+
+#### Cbor.Decode
+
+- New primitive `fold`, as an alternative for decoding record out of order.
+
+  ```elm
+  fold : Decoder k -> (k -> Decoder (state -> state)) -> state -> Decoder state
+  ```
+
+### Changed
+
+#### Cbor.Decode
+
+- `record`, `fields` and `field` are now properly working with out-of-order
+  records. The API is identical, but the internal implementation has been fixed
+  to support that case.
+
 ## v3.4.0 (2023-12-11)
 
 ### Added
