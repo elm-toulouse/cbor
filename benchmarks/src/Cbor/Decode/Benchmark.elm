@@ -1,0 +1,373 @@
+module Cbor.Decode.Benchmark exposing (..)
+
+import Bytes.Encode as E
+import Cbor.Decode as D exposing (Decoder)
+import Fixture
+
+
+largeRecordSorted : () -> Maybe Fixture.Many
+largeRecordSorted =
+    let
+        bytes =
+            [ 0xBF
+            , 0x00
+            , 0x18
+            , 0x2A
+            , 0x01
+            , 0x19
+            , 0xC0
+            , 0x77
+            , 0x02
+            , 0x00
+            , 0x03
+            , 0x19
+            , 0x02
+            , 0xE0
+            , 0x04
+            , 0x1A
+            , 0x00
+            , 0x1D
+            , 0x49
+            , 0x28
+            , 0x05
+            , 0x38
+            , 0x7A
+            , 0x06
+            , 0x3A
+            , 0x00
+            , 0x0F
+            , 0x42
+            , 0x3E
+            , 0x07
+            , 0x18
+            , 0x20
+            , 0x08
+            , 0x1B
+            , 0x00
+            , 0x00
+            , 0x54
+            , 0x78
+            , 0x0B
+            , 0x98
+            , 0x60
+            , 0x5F
+            , 0x09
+            , 0x3A
+            , 0x00
+            , 0x01
+            , 0x6A
+            , 0xA4
+            , 0x0A
+            , 0x00
+            , 0x0B
+            , 0x00
+            , 0x0C
+            , 0x00
+            , 0x0D
+            , 0x00
+            , 0x0E
+            , 0x00
+            , 0x0F
+            , 0x00
+            , 0x10
+            , 0x00
+            , 0x11
+            , 0x00
+            , 0x12
+            , 0x00
+            , 0x13
+            , 0x00
+            , 0x14
+            , 0x00
+            , 0x15
+            , 0x00
+            , 0x16
+            , 0x00
+            , 0x17
+            , 0x00
+            , 0x18
+            , 0x18
+            , 0x00
+            , 0xFF
+            ]
+                |> List.map E.unsignedInt8
+                |> E.sequence
+                |> E.encode
+    in
+    \_ -> D.decode Fixture.decodeManyRecord bytes
+
+
+largeRecordFoldSorted : () -> Maybe Fixture.Many
+largeRecordFoldSorted =
+    let
+        bytes =
+            [ 0xBF
+            , 0x00
+            , 0x18
+            , 0x2A
+            , 0x01
+            , 0x19
+            , 0xC0
+            , 0x77
+            , 0x02
+            , 0x00
+            , 0x03
+            , 0x19
+            , 0x02
+            , 0xE0
+            , 0x04
+            , 0x1A
+            , 0x00
+            , 0x1D
+            , 0x49
+            , 0x28
+            , 0x05
+            , 0x38
+            , 0x7A
+            , 0x06
+            , 0x3A
+            , 0x00
+            , 0x0F
+            , 0x42
+            , 0x3E
+            , 0x07
+            , 0x18
+            , 0x20
+            , 0x08
+            , 0x1B
+            , 0x00
+            , 0x00
+            , 0x54
+            , 0x78
+            , 0x0B
+            , 0x98
+            , 0x60
+            , 0x5F
+            , 0x09
+            , 0x3A
+            , 0x00
+            , 0x01
+            , 0x6A
+            , 0xA4
+            , 0x0A
+            , 0x00
+            , 0x0B
+            , 0x00
+            , 0x0C
+            , 0x00
+            , 0x0D
+            , 0x00
+            , 0x0E
+            , 0x00
+            , 0x0F
+            , 0x00
+            , 0x10
+            , 0x00
+            , 0x11
+            , 0x00
+            , 0x12
+            , 0x00
+            , 0x13
+            , 0x00
+            , 0x14
+            , 0x00
+            , 0x15
+            , 0x00
+            , 0x16
+            , 0x00
+            , 0x17
+            , 0x00
+            , 0x18
+            , 0x18
+            , 0x00
+            , 0xFF
+            ]
+                |> List.map E.unsignedInt8
+                |> E.sequence
+                |> E.encode
+    in
+    \_ -> D.decode Fixture.decodeManyRecordFold bytes
+
+
+largeRecordShuffled : () -> Maybe Fixture.Many
+largeRecordShuffled =
+    let
+        bytes =
+            [ 0xBF
+            , 0x0B
+            , 0x00
+            , 0x18
+            , 0x18
+            , 0x00
+            , 0x0C
+            , 0x00
+            , 0x01
+            , 0x19
+            , 0xC0
+            , 0x77
+            , 0x13
+            , 0x00
+            , 0x03
+            , 0x19
+            , 0x02
+            , 0xE0
+            , 0x09
+            , 0x3A
+            , 0x00
+            , 0x01
+            , 0x6A
+            , 0xA4
+            , 0x12
+            , 0x00
+            , 0x06
+            , 0x3A
+            , 0x00
+            , 0x0F
+            , 0x42
+            , 0x3E
+            , 0x02
+            , 0x00
+            , 0x0A
+            , 0x00
+            , 0x0F
+            , 0x00
+            , 0x05
+            , 0x38
+            , 0x7A
+            , 0x0E
+            , 0x00
+            , 0x10
+            , 0x00
+            , 0x07
+            , 0x18
+            , 0x20
+            , 0x08
+            , 0x1B
+            , 0x00
+            , 0x00
+            , 0x54
+            , 0x78
+            , 0x0B
+            , 0x98
+            , 0x60
+            , 0x5F
+            , 0x11
+            , 0x00
+            , 0x0D
+            , 0x00
+            , 0x14
+            , 0x00
+            , 0x00
+            , 0x18
+            , 0x2A
+            , 0x16
+            , 0x00
+            , 0x15
+            , 0x00
+            , 0x17
+            , 0x00
+            , 0x04
+            , 0x1A
+            , 0x00
+            , 0x1D
+            , 0x49
+            , 0x28
+            , 0xFF
+            ]
+                |> List.map E.unsignedInt8
+                |> E.sequence
+                |> E.encode
+    in
+    \_ -> D.decode Fixture.decodeManyRecord bytes
+
+
+largeRecordFoldShuffled : () -> Maybe Fixture.Many
+largeRecordFoldShuffled =
+    let
+        bytes =
+            [ 0xBF
+            , 0x0B
+            , 0x00
+            , 0x18
+            , 0x18
+            , 0x00
+            , 0x0C
+            , 0x00
+            , 0x01
+            , 0x19
+            , 0xC0
+            , 0x77
+            , 0x13
+            , 0x00
+            , 0x03
+            , 0x19
+            , 0x02
+            , 0xE0
+            , 0x09
+            , 0x3A
+            , 0x00
+            , 0x01
+            , 0x6A
+            , 0xA4
+            , 0x12
+            , 0x00
+            , 0x06
+            , 0x3A
+            , 0x00
+            , 0x0F
+            , 0x42
+            , 0x3E
+            , 0x02
+            , 0x00
+            , 0x0A
+            , 0x00
+            , 0x0F
+            , 0x00
+            , 0x05
+            , 0x38
+            , 0x7A
+            , 0x0E
+            , 0x00
+            , 0x10
+            , 0x00
+            , 0x07
+            , 0x18
+            , 0x20
+            , 0x08
+            , 0x1B
+            , 0x00
+            , 0x00
+            , 0x54
+            , 0x78
+            , 0x0B
+            , 0x98
+            , 0x60
+            , 0x5F
+            , 0x11
+            , 0x00
+            , 0x0D
+            , 0x00
+            , 0x14
+            , 0x00
+            , 0x00
+            , 0x18
+            , 0x2A
+            , 0x16
+            , 0x00
+            , 0x15
+            , 0x00
+            , 0x17
+            , 0x00
+            , 0x04
+            , 0x1A
+            , 0x00
+            , 0x1D
+            , 0x49
+            , 0x28
+            , 0xFF
+            ]
+                |> List.map E.unsignedInt8
+                |> E.sequence
+                |> E.encode
+    in
+    \_ -> D.decode Fixture.decodeManyRecordFold bytes
