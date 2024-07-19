@@ -381,6 +381,12 @@ suite =
                 |> expect any (Just <| CborInt32 0)
             , hex [ 0x20 ]
                 |> expect any (Just <| CborInt32 -1)
+            , hex [ 0x1B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect any (Just <| CborInt64 ( 1, 0 ))
+            , hex [ 0x3B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect any (Just <| CborInt64 ( -1, 1 ))
+            , hex [ 0x3B, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF ]
+                |> expect any (Just <| CborInt64 ( -2, 0 ))
             , hex [ 0x41, 0x14 ]
                 -- TODO: actually comparing Bytes is not possible in Elm
                 |> expect any (Just << CborBytes << Tuple.second <| hex [ 0x14 ])

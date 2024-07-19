@@ -250,6 +250,12 @@ suite =
                 |> expect [ 0x00 ]
             , any (CborInt32 -2)
                 |> expect [ 0x21 ]
+            , any (CborInt64 ( 1, 0 ))
+                |> expect [ 0x1B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
+            , any (CborInt64 ( -1, 1 ))
+                |> expect [ 0x3B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
+            , any (CborInt64 ( -2, 0 ))
+                |> expect [ 0x3B, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF ]
             , any (CborBytes <| toBytes [ 0x01, 0x02, 0x03, 0x04 ])
                 |> expect [ 0x44, 0x01, 0x02, 0x03, 0x04 ]
             , any (CborString "🌈")
@@ -345,7 +351,7 @@ expect output input =
         \_ -> hex (encode input) |> Expect.equal (Just output)
 
 
-{-| Convert a list of BE unsigned8 to bytes
+{-| Convert bytes to a BE list of unsigned8
 -}
 hex : Bytes -> Maybe (List Int)
 hex bytes =
