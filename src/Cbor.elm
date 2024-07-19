@@ -14,7 +14,9 @@ import Cbor.Tag exposing (Tag)
 [`Cbor.Decode.any`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Decode#any) and [`Cbor.Encode.any`](https://package.elm-lang.org/packages/elm-toulouse/cbor/latest/Cbor-Encode#any)
 -}
 type CborItem
-    = CborInt Int
+    = CborInt32 Int
+      -- CborInt64 (msb, lsb) -- msb gives the sign, lsb must be >= 0
+    | CborInt64 ( Int, Int )
     | CborBytes Bytes
     | CborString String
     | CborList (List CborItem)

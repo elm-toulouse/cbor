@@ -174,6 +174,28 @@ int =
         )
 
 
+{-| Internal usage only for CborItem decoding of 64-bit integers.
+We keep track of the integer sign in the most significant bytes part.
+-}
+int64 : Int -> D.Decoder ( Int, Int )
+int64 major =
+    D.map2 Tuple.pair (D.unsignedInt32 BE) (D.unsignedInt32 BE)
+        |> D.map
+            (\( msb, lsb ) ->
+                if major == 0 then
+                    -- Positive integer, we keep msb and lsb positive
+                    ( msb, lsb )
+
+                else if lsb == 0xFFFFFFFF then
+                    -- Negative integer, at the 2^32 frontier
+                    ( negate (msb + 1), 0 )
+
+                else
+                    -- Negative integer
+                    ( negate msb, lsb + 1 )
+            )
+
+
 {-| Decode an unbounded integer as a big-endian bytes sequence. This
 is particularly useful for decoding large integer values which are beyond the
 max and min safe integer values allowed by Elm.
@@ -1523,10 +1545,20 @@ any =
                     processNext i
             in
             if majorType == 0 then
-                D.map CborInt <| apply int a
+                -- Check if 64-bit integer
+                if payload == 27 then
+                    D.map CborInt64 <| int64 majorType
+
+                else
+                    D.map CborInt32 <| apply int a
 
             else if majorType == 1 then
-                D.map CborInt <| apply int a
+                -- Check if 64-bit integer
+                if payload == 27 then
+                    D.map CborInt64 <| int64 majorType
+
+                else
+                    D.map CborInt32 <| apply int a
 
             else if majorType == 2 then
                 D.map CborBytes <| apply bytes a

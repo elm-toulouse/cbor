@@ -246,19 +246,19 @@ suite =
                 |> expect [ 0xFB, 0xC0, 0x10, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66 ]
             ]
         , describe "any / raw"
-            [ any (CborInt 0)
+            [ any (CborInt32 0)
                 |> expect [ 0x00 ]
-            , any (CborInt -2)
+            , any (CborInt32 -2)
                 |> expect [ 0x21 ]
             , any (CborBytes <| toBytes [ 0x01, 0x02, 0x03, 0x04 ])
                 |> expect [ 0x44, 0x01, 0x02, 0x03, 0x04 ]
             , any (CborString "🌈")
                 |> expect [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
-            , any (CborList [ CborInt 1, CborInt 2, CborInt 3 ])
+            , any (CborList [ CborInt32 1, CborInt32 2, CborInt32 3 ])
                 |> expect [ 0x83, 0x01, 0x02, 0x03 ]
-            , any (CborMap [ ( CborInt 1, CborInt 2 ), ( CborInt 3, CborInt 4 ) ])
+            , any (CborMap [ ( CborInt32 1, CborInt32 2 ), ( CborInt32 3, CborInt32 4 ) ])
                 |> expect [ 0xA2, 0x01, 0x02, 0x03, 0x04 ]
-            , any (CborTag EpochDateTime (CborInt 0))
+            , any (CborTag EpochDateTime (CborInt32 0))
                 |> expect [ 0xC1, 0x00 ]
             , list any [ CborBool False, CborBool True, CborNull, CborUndefined ]
                 |> expect [ 0x84, 0xF4, 0xF5, 0xF6, 0xF7 ]

@@ -632,8 +632,41 @@ heterogeneous data structures (e.g. tuples).
 any : CborItem -> Encoder
 any item =
     case item of
-        CborInt i ->
+        CborInt32 i ->
             int i
+
+        CborInt64 ( msb, lsb ) ->
+            Encoder
+                (E.sequence
+                    (if msb >= 0 then
+                        -- Positive
+                        [ majorType 0 27
+                        , E.unsignedInt32 BE msb
+                        , E.unsignedInt32 BE lsb
+                        ]
+
+                     else if lsb >= 1 then
+                        -- Negative and not exactly a multiple of 2^32
+                        [ majorType 1 27
+                        , E.unsignedInt32 BE (negate msb)
+                        , E.unsignedInt32 BE (lsb - 1)
+                        ]
+
+                     else if lsb == 0 then
+                        -- Negative and exactly a multiple of 2^32
+                        [ majorType 1 27
+                        , E.unsignedInt32 BE (negate msb - 1)
+                        , E.unsignedInt32 BE 0xFFFFFFFF
+                        ]
+
+                     else
+                        -- Forbidden for lsb < 0
+                        -- Bytes encoding will fail
+                        [ majorType 1 27
+                        , E.unsignedInt32 BE -1
+                        ]
+                    )
+                )
 
         CborBytes bs ->
             bytes bs
