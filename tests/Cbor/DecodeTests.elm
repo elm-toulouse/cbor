@@ -360,8 +360,8 @@ suite =
                     (let
                         fromCborItem item =
                             case item of
-                                CborInt i ->
-                                    succeed (CborInt i)
+                                CborInt32 i ->
+                                    succeed (CborInt32 i)
 
                                 CborMap xs ->
                                     map CborMap <|
@@ -374,33 +374,48 @@ suite =
                      in
                      any |> andThen fromCborItem
                     )
-                    (Just <| CborMap [ ( CborInt 1, CborInt 1 ), ( CborInt 2, CborInt 2 ) ])
+                    (Just <| CborMap [ ( CborInt32 1, CborInt32 1 ), ( CborInt32 2, CborInt32 2 ) ])
             ]
         , describe "any / raw"
             [ hex [ 0x00 ]
-                |> expect any (Just <| CborInt 0)
+                |> expect any (Just <| CborInt32 0)
             , hex [ 0x20 ]
-                |> expect any (Just <| CborInt -1)
+                |> expect any (Just <| CborInt32 -1)
+            , hex [ 0x1B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect any (Just <| CborInt64 ( 1, 0 ))
+            , hex [ 0x3B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 ]
+                |> expect any (Just <| CborInt64 ( -1, 1 ))
+            , hex [ 0x3B, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF ]
+                |> expect any (Just <| CborInt64 ( -2, 0 ))
             , hex [ 0x41, 0x14 ]
+                -- TODO: actually comparing Bytes is not possible in Elm
                 |> expect any (Just << CborBytes << Tuple.second <| hex [ 0x14 ])
             , hex [ 0x64, 0xF0, 0x9F, 0x8C, 0x88 ]
                 |> expect any (Just <| CborString "🌈")
             , hex [ 0x82, 0x0E, 0x18, 0x2A ]
-                |> expect any (Just <| CborList [ CborInt 14, CborInt 42 ])
+                |> expect any (Just <| CborList [ CborInt32 14, CborInt32 42 ])
             , hex [ 0xA1, 0x66, 0x70, 0x61, 0x74, 0x61, 0x74, 0x65, 0x0E ]
-                |> expect any (Just <| CborMap [ ( CborString "patate", CborInt 14 ) ])
+                |> expect any (Just <| CborMap [ ( CborString "patate", CborInt32 14 ) ])
             , hex [ 0xD8, 0x2A, 0x0E ]
-                |> expect any (Just <| CborTag (Unknown 42) (CborInt 14))
+                |> expect any (Just <| CborTag (Unknown 42) (CborInt32 14))
             , hex [ 0x82, 0xF4, 0xF5 ]
                 |> expect (list any) (Just <| [ CborBool False, CborBool True ])
             , hex [ 0xF9, 0x55, 0x22 ]
                 |> expect any (Just <| CborFloat 82.125)
             , hex [ 0x82, 0x00, 0x01 ]
-                |> expect raw (Just <| Tuple.second <| hex [ 0x82, 0x00, 0x01 ])
+                |> expectBytes raw (Just <| Tuple.second <| hex [ 0x82, 0x00, 0x01 ])
 
             -- 2^53
             , hex [ 0x1B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
-                |> expect raw (Just <| Tuple.second <| hex [ 0x1B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ])
+                |> expectBytes raw (Just <| Tuple.second <| hex [ 0x1B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ])
+
+            -- -2^53 - 1
+            , hex [ 0x3B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+                |> expectBytes raw (Just <| Tuple.second <| hex [ 0x3B, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ])
+
+            -- -2^53
+            , hex [ 0x3B, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ]
+                |> expectBytes raw (Just <| Tuple.second <| hex [ 0x3B, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ])
             ]
         , describe "Record"
             [ hex [ 0xA4, 0x00, 0x0E, 0x01, 0xF5, 0x02, 0x19, 0x05, 0x39, 0x03, 0x00 ]
@@ -523,6 +538,14 @@ expect : Decoder a -> Maybe a -> ( List Int, Bytes ) -> Test
 expect decoder output ( readable, input ) =
     test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
         \_ -> input |> decode decoder |> Expect.equal output
+
+
+{-| Alias / Shortcut to write test cases
+-}
+expectBytes : Decoder Bytes -> Maybe Bytes -> ( List Int, Bytes ) -> Test
+expectBytes decoder output ( readable, input ) =
+    test (Debug.toString readable ++ " -> " ++ Debug.toString output) <|
+        \_ -> input |> decode decoder |> Maybe.map Hex.toString |> Expect.equal (Maybe.map Hex.toString output)
 
 
 expectBigInt : Sign -> String -> ( List Int, Bytes ) -> Test
