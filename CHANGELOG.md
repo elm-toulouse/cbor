@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.0.0 (2024-07-19)
+
+### Changed
+
+#### Cbor
+
+- `CborItem`'s variant `CborInt` has been split in two variants:
+    - `CborInt32` for ints that fits in an int32.
+    - `CborInt64` for larger integers.
+
+  This change comes mainly as a fix to `Cbor.Decode.any` which would otherwise
+  choke on integers in the range `[2^53+1; 2^64-1]` which is generally unsafe
+  to manipulate in JavaScript (and by extension, Elm). Instead, we now
+  represent large ints as two smallers 32-bit values when decoding.
+
 ## v3.5.0 (2024-02-18)
 
 ### Added
