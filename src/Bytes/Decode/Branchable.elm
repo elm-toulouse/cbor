@@ -7,7 +7,7 @@ module Bytes.Decode.Branchable exposing
     , bytes
     , map, map2, map3, map4, map5
     , keep, ignore, skip
-    , andThen, oneOf, repeat, loop
+    , andThen, oneOf, repeat, loop, peek
     )
 
 {-| Parse `Bytes` with custom error reporting and context tracking.
@@ -58,7 +58,7 @@ module Bytes.Decode.Branchable exposing
 
 # Advanced decoders
 
-@docs andThen, oneOf, repeat, loop
+@docs andThen, oneOf, repeat, loop, peek
 
 -}
 
@@ -484,6 +484,13 @@ loop initialState callback =
 
 
 -- Basics
+
+
+{-| Decode one byte into an integer from 0 to 255, but does not make progress in the bytes decoded.
+-}
+peek : Decoder Int
+peek =
+    fromDecoder D.unsignedInt8 0
 
 
 {-| Decode one byte into an integer from 0 to 255.
