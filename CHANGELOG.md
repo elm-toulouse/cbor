@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.0.1 (2024-07-23)
+
+### Changed
+
+#### Cbor.Decode
+
+- Fix `maybe` / `oneOf` combination not properly detecting Nothing branch.
+
 ## v4.0.0 (2024-07-19)
 
 ### Changed
