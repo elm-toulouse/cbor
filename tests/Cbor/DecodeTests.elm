@@ -237,6 +237,10 @@ suite =
             , hex [ 0xF9, 0xFF, 0xFF ]
                 |> expect (map isNaN float) (Just True)
             ]
+        , describe "Extras maybe(oneOf)"
+            [ hex [ 0xF6 ]
+                |> expect (maybe (oneOf [ bool, bool ])) (Just Nothing)
+            ]
         , describe "Extras"
             [ hex [ 0xF6 ]
                 |> expect (maybe bool) (Just Nothing)

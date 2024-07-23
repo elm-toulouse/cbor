@@ -1337,7 +1337,7 @@ oneOf alternatives =
         absurd =
             shiftLeftBy 5 28
     in
-    Decoder (D.succeed absurd) <|
+    Decoder (D.oneOf [ D.peek, D.succeed absurd ]) <|
         (alternatives
             |> List.map runDecoder
             |> D.oneOf
